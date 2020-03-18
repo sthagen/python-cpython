@@ -193,7 +193,8 @@ static void
 ensure_tstate_not_null(const char *func, PyThreadState *tstate)
 {
     if (tstate == NULL) {
-        _Py_FatalErrorFunc(func, "current thread state is NULL");
+        _Py_FatalErrorFunc(func,
+                           "current thread state is NULL (released GIL?)");
     }
 }
 
@@ -311,6 +312,13 @@ PyEval_ReleaseLock(void)
        in debug mode.
     */
     drop_gil(&runtime->ceval, tstate);
+}
+
+void
+_PyEval_ReleaseLock(PyThreadState *tstate)
+{
+    struct _ceval_runtime_state *ceval = &tstate->interp->runtime->ceval;
+    drop_gil(ceval, tstate);
 }
 
 void
@@ -506,8 +514,10 @@ Py_AddPendingCall(int (*func)(void *), void *arg)
 }
 
 static int
-handle_signals(_PyRuntimeState *runtime)
+handle_signals(PyThreadState *tstate)
 {
+    _PyRuntimeState *runtime = tstate->interp->runtime;
+
     /* Only handle signals on main thread */
     if (PyThread_get_thread_ident() != runtime->main_thread) {
         return 0;
@@ -516,7 +526,7 @@ handle_signals(_PyRuntimeState *runtime)
      * Ensure that the thread isn't currently running some other
      * interpreter.
      */
-    PyInterpreterState *interp = _PyRuntimeState_GetThreadState(runtime)->interp;
+    PyInterpreterState *interp = tstate->interp;
     if (interp != runtime->interpreters.main) {
         return 0;
     }
@@ -531,9 +541,11 @@ handle_signals(_PyRuntimeState *runtime)
 }
 
 static int
-make_pending_calls(_PyRuntimeState *runtime)
+make_pending_calls(PyThreadState *tstate)
 {
     static int busy = 0;
+
+    _PyRuntimeState *runtime = tstate->interp->runtime;
 
     /* only service pending calls on main thread */
     if (PyThread_get_thread_ident() != runtime->main_thread) {
@@ -586,8 +598,7 @@ _Py_FinishPendingCalls(PyThreadState *tstate)
 {
     assert(PyGILState_Check());
 
-    _PyRuntimeState *runtime = tstate->interp->runtime;
-    struct _pending_calls *pending = &runtime->ceval.pending;
+    struct _pending_calls *pending = &tstate->interp->runtime->ceval.pending;
 
     PyThread_acquire_lock(pending->lock, WAIT_LOCK);
     pending->finishing = 1;
@@ -597,7 +608,7 @@ _Py_FinishPendingCalls(PyThreadState *tstate)
         return;
     }
 
-    if (make_pending_calls(runtime) < 0) {
+    if (make_pending_calls(tstate) < 0) {
         PyObject *exc, *val, *tb;
         _PyErr_Fetch(tstate, &exc, &val, &tb);
         PyErr_BadInternalCall();
@@ -613,15 +624,16 @@ Py_MakePendingCalls(void)
 {
     assert(PyGILState_Check());
 
+    PyThreadState *tstate = _PyThreadState_GET();
+
     /* Python signal handler doesn't really queue a callback: it only signals
        that a signal was received, see _PyEval_SignalReceived(). */
-    _PyRuntimeState *runtime = &_PyRuntime;
-    int res = handle_signals(runtime);
+    int res = handle_signals(tstate);
     if (res != 0) {
         return res;
     }
 
-    res = make_pending_calls(runtime);
+    res = make_pending_calls(tstate);
     if (res != 0) {
         return res;
     }
@@ -1231,12 +1243,12 @@ main_loop:
             }
 
             if (_Py_atomic_load_relaxed(&ceval->signals_pending)) {
-                if (handle_signals(runtime) != 0) {
+                if (handle_signals(tstate) != 0) {
                     goto error;
                 }
             }
             if (_Py_atomic_load_relaxed(&ceval->pending.calls_to_do)) {
-                if (make_pending_calls(runtime) != 0) {
+                if (make_pending_calls(tstate) != 0) {
                     goto error;
                 }
             }
