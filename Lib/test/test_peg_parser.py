@@ -603,6 +603,15 @@ FAIL_SPECIALIZED_MESSAGE_CASES = [
     ("1 += 1", "cannot assign to literal"),
     ("pass\n    pass", "unexpected indent"),
     ("def f():\npass", "expected an indented block"),
+    ("def f(*): pass", "named arguments must follow bare *"),
+    ("def f(*,): pass", "named arguments must follow bare *"),
+    ("def f(*, **a): pass", "named arguments must follow bare *"),
+    ("lambda *: pass", "named arguments must follow bare *"),
+    ("lambda *,: pass", "named arguments must follow bare *"),
+    ("lambda *, **a: pass", "named arguments must follow bare *"),
+    ("f(g()=2", "expression cannot contain assignment, perhaps you meant \"==\"?"),
+    ("f(a, b, *c, d.e=2", "expression cannot contain assignment, perhaps you meant \"==\"?"),
+    ("f(*a, **b, c=0, d[1]=3)", "expression cannot contain assignment, perhaps you meant \"==\"?"),
 ]
 
 GOOD_BUT_FAIL_TEST_CASES = [

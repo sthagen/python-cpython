@@ -40,6 +40,10 @@ type_expressions[asdl_seq*]:
         _PyPegen_seq_append_to_end(p, CHECK(_PyPegen_seq_append_to_end(p, a, b)), c) }
     | a=','.expression+ ',' '*' b=expression { _PyPegen_seq_append_to_end(p, a, b) }
     | a=','.expression+ ',' '**' b=expression { _PyPegen_seq_append_to_end(p, a, b) }
+    | '*' a=expression ',' '**' b=expression {
+        _PyPegen_seq_append_to_end(p, CHECK(_PyPegen_singleton_seq(p, a)), b) }
+    | '*' a=expression { _PyPegen_singleton_seq(p, a) }
+    | '**' a=expression { _PyPegen_singleton_seq(p, a) }
     | ','.expression+
 
 statements[asdl_seq*]: a=statement+ { _PyPegen_seq_flatten(p, a) }
@@ -78,7 +82,7 @@ compound_stmt[stmt_ty]:
     | &'while' while_stmt
 
 # NOTE: annotated_rhs may start with 'yield'; yield_expr must start with 'yield'
-assignment:
+assignment[stmt_ty]:
     | a=NAME ':' b=expression c=['=' d=annotated_rhs { d }] {
         CHECK_VERSION(
             6,
@@ -166,11 +170,11 @@ for_stmt[stmt_ty]:
         CHECK_VERSION(5, "Async for loops are", _Py_AsyncFor(t, ex, b, el, NEW_TYPE_COMMENT(p, tc), EXTRA)) }
 
 with_stmt[stmt_ty]:
-    | 'with' '(' a=','.with_item+ ')' ':' b=block {
+    | 'with' '(' a=','.with_item+ ','? ')' ':' b=block {
         _Py_With(a, b, NULL, EXTRA) }
     | 'with' a=','.with_item+ ':' tc=[TYPE_COMMENT] b=block {
         _Py_With(a, b, NEW_TYPE_COMMENT(p, tc), EXTRA) }
-    | ASYNC 'with' '(' a=','.with_item+ ')' ':' b=block {
+    | ASYNC 'with' '(' a=','.with_item+ ','? ')' ':' b=block {
        CHECK_VERSION(5, "Async with statements are", _Py_AsyncWith(a, b, NULL, EXTRA)) }
     | ASYNC 'with' a=','.with_item+ ':' tc=[TYPE_COMMENT] b=block {
        CHECK_VERSION(5, "Async with statements are", _Py_AsyncWith(a, b, NEW_TYPE_COMMENT(p, tc), EXTRA)) }
@@ -245,6 +249,7 @@ star_etc[StarEtc*]:
     | '*' ',' b=param_maybe_default+ c=[kwds] {
         _PyPegen_star_etc(p, NULL, b, c) }
     | a=kwds { _PyPegen_star_etc(p, NULL, NULL, a) }
+    | invalid_star_etc
 
 kwds[arg_ty]: '**' a=param_no_default { a }
 
@@ -352,6 +357,7 @@ lambda_star_etc[StarEtc*]:
     | '*' ',' b=lambda_param_maybe_default+ c=[lambda_kwds] {
         _PyPegen_star_etc(p, NULL, b, c) }
     | a=lambda_kwds { _PyPegen_star_etc(p, NULL, NULL, a) }
+    | invalid_lambda_star_etc
 
 lambda_kwds[arg_ty]: '**' a=lambda_param_no_default { a }
 
@@ -542,10 +548,12 @@ kwarg_or_starred[KeywordOrStarred*]:
     | a=NAME '=' b=expression {
         _PyPegen_keyword_or_starred(p, CHECK(_Py_keyword(a->v.Name.id, b, EXTRA)), 1) }
     | a=starred_expression { _PyPegen_keyword_or_starred(p, a, 0) }
+    | invalid_kwarg
 kwarg_or_double_starred[KeywordOrStarred*]:
     | a=NAME '=' b=expression {
         _PyPegen_keyword_or_starred(p, CHECK(_Py_keyword(a->v.Name.id, b, EXTRA)), 1) }
     | '**' a=expression { _PyPegen_keyword_or_starred(p, CHECK(_Py_keyword(NULL, a, EXTRA)), 1) }
+    | invalid_kwarg
 
 # NOTE: star_targets may contain *bitwise_or, targets may not.
 star_targets[expr_ty]:
@@ -614,6 +622,8 @@ incorrect_arguments:
     | expression for_if_clauses ',' [args | expression for_if_clauses] {
         RAISE_SYNTAX_ERROR("Generator expression must be parenthesized") }
     | a=args ',' args { _PyPegen_arguments_parsing_error(p, a) }
+invalid_kwarg:
+    | expression '=' { RAISE_SYNTAX_ERROR("expression cannot contain assignment, perhaps you meant \"==\"?") }
 invalid_named_expression:
     | a=expression ':=' expression {
         RAISE_SYNTAX_ERROR("cannot use assignment expressions with %s", _PyPegen_get_expr_name(a)) }
@@ -632,6 +642,10 @@ invalid_comprehension:
 invalid_parameters:
     | param_no_default* (slash_with_default | param_with_default+) param_no_default {
         RAISE_SYNTAX_ERROR("non-default argument follows default argument") }
+invalid_star_etc:
+    | '*' (')' | ',' (')' | '**')) { RAISE_SYNTAX_ERROR("named arguments must follow bare *") }
+invalid_lambda_star_etc:
+    | '*' (':' | ',' (':' | '**')) { RAISE_SYNTAX_ERROR("named arguments must follow bare *") }
 invalid_double_type_comments:
     | TYPE_COMMENT NEWLINE TYPE_COMMENT NEWLINE INDENT {
         RAISE_SYNTAX_ERROR("Cannot have two type comments on def") }
