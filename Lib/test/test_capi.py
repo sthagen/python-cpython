@@ -68,7 +68,10 @@ class CAPITest(unittest.TestCase):
         self.assertTrue(err.rstrip().startswith(
                          b'Fatal Python error: '
                          b'PyThreadState_Get: '
-                         b'current thread state is NULL (released GIL?)'))
+                         b'the function must be called with the GIL held, '
+                         b'but the GIL is released '
+                         b'(the current Python thread state is NULL)'),
+                        err)
 
     def test_memoryview_from_NULL_pointer(self):
         self.assertRaises(ValueError, _testcapi.make_memoryview_from_NULL_pointer)
@@ -474,6 +477,11 @@ class CAPITest(unittest.TestCase):
         self.assertEqual(ref(), inst)
         self.assertEqual(inst.weakreflist, ref)
 
+    def test_heaptype_with_buffer(self):
+        inst = _testcapi.HeapCTypeWithBuffer()
+        b = bytes(inst)
+        self.assertEqual(b, b"1234")
+
     def test_c_subclass_of_heap_ctype_with_tpdealloc_decrefs_once(self):
         subclass_instance = _testcapi.HeapCTypeSubclass()
         type_refcnt = sys.getrefcount(_testcapi.HeapCTypeSubclass)
@@ -507,6 +515,14 @@ class CAPITest(unittest.TestCase):
 
         # Test that subtype_dealloc decref the newly assigned __class__ only once
         self.assertEqual(new_type_refcnt, sys.getrefcount(_testcapi.HeapCTypeSubclass))
+
+    def test_heaptype_with_setattro(self):
+        obj = _testcapi.HeapCTypeSetattr()
+        self.assertEqual(obj.pvalue, 10)
+        obj.value = 12
+        self.assertEqual(obj.pvalue, 12)
+        del obj.value
+        self.assertEqual(obj.pvalue, 0)
 
     def test_pynumber_tobase(self):
         from _testcapi import pynumber_tobase
@@ -618,6 +634,27 @@ class SubinterpreterTest(unittest.TestCase):
             self.assertEqual(ret, 0)
             self.assertNotEqual(pickle.load(f), id(sys.modules))
             self.assertNotEqual(pickle.load(f), id(builtins))
+
+    def test_subinterps_recent_language_features(self):
+        r, w = os.pipe()
+        code = """if 1:
+            import pickle
+            with open({:d}, "wb") as f:
+
+                @(lambda x:x)  # Py 3.9
+                def noop(x): return x
+
+                a = (b := f'1{{2}}3') + noop('x')  # Py 3.8 (:=) / 3.6 (f'')
+
+                async def foo(arg): return await arg  # Py 3.5
+
+                pickle.dump(dict(a=a, b=b), f)
+            """.format(w)
+
+        with open(r, "rb") as f:
+            ret = support.run_in_subinterp(code)
+            self.assertEqual(ret, 0)
+            self.assertEqual(pickle.load(f), {'a': '123x', 'b': '123'})
 
     def test_mutate_exception(self):
         """
