@@ -186,6 +186,11 @@ by :func:`curses.color_content`, :func:`curses.init_color`,
 support is provided by the underlying ncurses library.
 (Contributed by Jeffrey Kintscher and Hans Petter Jansson in :issue:`36982`.)
 
+encodings
+---------
+:func:`encodings.normalize_encoding` now ignores non-ASCII characters.
+(Contributed by Hai Shi in :issue:`39337`.)
+
 glob
 ----
 
@@ -247,13 +252,47 @@ Optimizations
   average.
   (Contributed by Victor Stinner in :issue:`41006`.)
 
+* The ``LOAD_ATTR`` instruction now uses new "per opcode cache" mechanism.
+  It is about 36% faster now.  (Contributed by Pablo Galindo and Yury Selivanov
+  in :issue:`42093`.)
+
+* When building Python with ``--enable-optimizations`` now
+  ``-fno-semantic-interposition`` is added to both the compile and link line.
+  This speeds builds of the Python interpreter created with ``--enable-shared``
+  with ``gcc`` by up to 30%. See `this article
+  <https://developers.redhat.com/blog/2020/06/25/red-hat-enterprise-linux-8-2-brings-faster-python-3-8-run-speeds/>`_
+  for more details. (Contributed by Victor Stinner and Pablo Galindo in
+  :issue:`38980`)
 
 Deprecated
 ==========
 
+* Starting in this release, there will be a concerted effort to begin
+  cleaning up old import semantics that were kept for Python 2.7
+  compatibility. Specifically,
+  :meth:`~importlib.abc.PathEntryFinder.find_loader`/:meth:`~importlib.abc.Finder.find_module`
+  (superseded by :meth:`~importlib.abc.Finder.find_spec`),
+  :meth:`~importlib.abc.Loader.load_module`
+  (superseded by :meth:`~importlib.abc.Loader.exec_module`),
+  :meth:`~importlib.abc.Loader.module_repr` (which the import system
+  takes care of for you), the ``__package__`` attribute
+  (superseded by ``__spec__.parent``), the ``__loader__`` attribute
+  (superseded by ``__spec__.loader``), and the ``__cached__`` attribute
+  (superseded by ``__spec__.cached``) will slowly be removed (as well
+  as other classes and methods in :mod:`importlib`).
+  :exc:`ImportWarning` and/or :exc:`DeprecationWarning` will be raised
+  as appropriate to help identify code which needs updating during
+  this transition.
+
 
 Removed
 =======
+
+* Removed special methods ``__int__``, ``__float__``, ``__floordiv__``,
+  ``__mod__``, ``__divmod__``, ``__rfloordiv__``, ``__rmod__`` and
+  ``__rdivmod__`` of the :class:`complex` class.  They always raised
+  a :exc:`TypeError`.
+  (Contributed by Serhiy Storchaka in :issue:`41974`.)
 
 * The ``ParserBase.error()`` method from the private and undocumented ``_markupbase``
   module has been removed.  :class:`html.parser.HTMLParser` is the only subclass of
@@ -307,6 +346,14 @@ New Features
 * Add a :c:func:`PyCodec_Unregister` function to unregister a codec
   search function.
   (Contributed by Hai Shi in :issue:`41842`.)
+
+* The :c:func:`PyIter_Send` function was added to allow
+  sending value into iterator without raising ``StopIteration`` exception.
+  (Contributed by Vladimir Matveev in :issue:`41756`.)
+
+* Added :c:func:`PyUnicode_AsUTF8AndSize` to the limited C API.
+  (Contributed by Alex Gaynor in :issue:`41784`.)
+
 
 Porting to Python 3.10
 ----------------------
