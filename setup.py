@@ -1014,7 +1014,7 @@ class PyBuildExt(build_ext):
             os_release = int(os.uname()[2].split('.')[0])
             dep_target = sysconfig.get_config_var('MACOSX_DEPLOYMENT_TARGET')
             if (dep_target and
-                    (tuple(int(n) for n in dep_target.split('.')[0:2])
+                    (tuple(int(n) for n in str(dep_target).split('.')[0:2])
                         < (10, 5) ) ):
                 os_release = 8
             if os_release < 9:
@@ -1132,11 +1132,7 @@ class PyBuildExt(build_ext):
     def detect_socket(self):
         # socket(2)
         kwargs = {'depends': ['socketmodule.h']}
-        if VXWORKS:
-            if not self.compiler.find_library_file(self.lib_dirs, 'net'):
-                return
-            kwargs['libraries'] = ['net']
-        elif MACOS:
+        if MACOS:
             # Issue #35569: Expose RFC 3542 socket options.
             kwargs['extra_compile_args'] = ['-D__APPLE_USE_RFC_3542']
 
