@@ -177,10 +177,11 @@ def macosx_sdk_root():
     m = re.search(r'-isysroot\s*(\S+)', cflags)
     if m is not None:
         MACOS_SDK_ROOT = m.group(1)
+        MACOS_SDK_SPECIFIED = MACOS_SDK_ROOT != '/'
     else:
         MACOS_SDK_ROOT = _osx_support._default_sysroot(
             sysconfig.get_config_var('CC'))
-    MACOS_SDK_SPECIFIED = MACOS_SDK_ROOT != '/'
+        MACOS_SDK_SPECIFIED = False
 
     return MACOS_SDK_ROOT
 
@@ -853,8 +854,6 @@ class PyBuildExt(build_ext):
         # C-optimized pickle replacement
         self.add(Extension("_pickle", ["_pickle.c"],
                            extra_compile_args=['-DPy_BUILD_CORE_MODULE']))
-        # atexit
-        self.add(Extension("atexit", ["atexitmodule.c"]))
         # _json speedups
         self.add(Extension("_json", ["_json.c"],
                            extra_compile_args=['-DPy_BUILD_CORE_MODULE']))
@@ -1802,8 +1801,16 @@ class PyBuildExt(build_ext):
 ##         self.add(Extension('xx', ['xxmodule.c']))
 
         if 'd' not in sysconfig.get_config_var('ABIFLAGS'):
+            # Non-debug mode: Build xxlimited with limited API
             self.add(Extension('xxlimited', ['xxlimited.c'],
+                               define_macros=[('Py_LIMITED_API', '0x03100000')]))
+            self.add(Extension('xxlimited_35', ['xxlimited_35.c'],
                                define_macros=[('Py_LIMITED_API', '0x03050000')]))
+        else:
+            # Debug mode: Build xxlimited with the full API
+            # (which is compatible with the limited one)
+            self.add(Extension('xxlimited', ['xxlimited.c']))
+            self.add(Extension('xxlimited_35', ['xxlimited_35.c']))
 
     def detect_tkinter_explicitly(self):
         # Build _tkinter using explicit locations for Tcl/Tk.
