@@ -144,6 +144,28 @@ See :pep:`604` for more details.
 
 (Contributed by Maggie Moss and Philippe Prados in :issue:`41428`.)
 
+PEP 612: Parameter Specification Variables
+------------------------------------------
+
+Two new options to improve the information provided to static type checkers for
+:pep:`484`\ 's ``Callable`` have been added to the :mod:`typing` module.
+
+The first is the parameter specification variable.  They are used to forward the
+parameter types of one callable to another callable -- a pattern commonly
+found in higher order functions and decorators.  Examples of usage can be found
+in :class:`typing.ParamSpec`. Previously, there was no easy way to type annotate
+dependency of parameter types in such a precise manner.
+
+The second option is the new ``Concatenate`` operator. It's used in conjunction
+with parameter specification variables to type annotate a higher order callable
+which adds or removes parameters of another callable.  Examples of usage can
+be found in :class:`typing.Concatenate`.
+
+See :class:`typing.Callable`, :class:`typing.ParamSpec`,
+:class:`typing.Concatenate` and :pep:`612` for more details.
+
+(Contributed by Ken Jin in :issue:`41559`.)
+
 Other Language Changes
 ======================
 
@@ -213,6 +235,14 @@ by :func:`curses.color_content`, :func:`curses.init_color`,
 :func:`curses.has_extended_color_support`, indicates whether extended color
 support is provided by the underlying ncurses library.
 (Contributed by Jeffrey Kintscher and Hans Petter Jansson in :issue:`36982`.)
+
+distutils
+---------
+
+The ``bdist_wininst`` command deprecated in Python 3.8 has been removed.
+The ``bidst_wheel`` command is now recommended to distribute binary packages
+on Windows.
+(Contributed by Victor Stinner in :issue:`42802`.)
 
 doctest
 -------
@@ -404,9 +434,11 @@ Optimizations
   average.
   (Contributed by Victor Stinner in :issue:`41006`.)
 
-* The ``LOAD_ATTR`` instruction now uses new "per opcode cache" mechanism.
-  It is about 36% faster now.  (Contributed by Pablo Galindo and Yury Selivanov
-  in :issue:`42093`, based on ideas implemented originally in PyPy and MicroPython.)
+* The ``LOAD_ATTR`` instruction now uses new "per opcode cache" mechanism.  It
+  is about 36% faster now. This makes optimized ``LOAD_ATTR`` instructions the
+  current most performance attribute access method (faster than slots).
+  (Contributed by Pablo Galindo and Yury Selivanov in :issue:`42093`, based on
+  ideas implemented originally in PyPy and MicroPython.)
 
 * When building Python with ``--enable-optimizations`` now
   ``-fno-semantic-interposition`` is added to both the compile and link line.
@@ -461,6 +493,14 @@ Deprecated
   3.3, when it was made an alias to :class:`str`.  It is now deprecated,
   scheduled for removal in Python 3.12.
   (Contributed by Erlend E. Aasland in :issue:`42264`.)
+
+* The undocumented built-in function ``sqlite3.enable_shared_cache`` is now
+  deprecated, scheduled for removal in Python 3.12.  Its use is strongly
+  discouraged by the SQLite3 documentation.  See `the SQLite3 docs
+  <https://sqlite.org/c3ref/enable_shared_cache.html/>`_ for more details.
+  If shared cache must be used, open the database in URI mode using the
+  ``cache=shared`` query parameter.
+  (Contributed by Erlend E. Aasland in :issue:`24464`.)
 
 
 Removed
@@ -553,13 +593,12 @@ CPython bytecode changes
 Build Changes
 =============
 
-
 * The C99 functions :c:func:`snprintf` and :c:func:`vsnprintf` are now required
   to build Python.
   (Contributed by Victor Stinner in :issue:`36020`.)
 
-* :mod:`sqlite3` requires SQLite 3.7.3 or higher.
-  (Contributed by Sergey Fedoseev and Erlend E. Aasland :issue:`40744`.)
+* :mod:`sqlite3` requires SQLite 3.7.15 or higher. (Contributed by Sergey Fedoseev
+  and Erlend E. Aasland :issue:`40744` and :issue:`40810`.)
 
 * The :mod:`atexit` module must now always be built as a built-in module.
   (Contributed by Victor Stinner in :issue:`42639`.)
