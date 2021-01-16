@@ -189,6 +189,12 @@ New Modules
 Improved Modules
 ================
 
+argparse
+--------
+
+Misleading phrase "optional arguments" was replaced with "options" in argparse help. Some tests might require adaptation if they rely on exact output match.
+(Contributed by Raymond Hettinger in :issue:`9694`.)
+
 base64
 ------
 
@@ -235,6 +241,10 @@ by :func:`curses.color_content`, :func:`curses.init_color`,
 :func:`curses.has_extended_color_support`, indicates whether extended color
 support is provided by the underlying ncurses library.
 (Contributed by Jeffrey Kintscher and Hans Petter Jansson in :issue:`36982`.)
+
+The ``BUTTON5_*`` constants are now exposed in the :mod:`curses` module if
+they are provided by the underlying curses library.
+(Contributed by Zackery Spytz in :issue:`39273`.)
 
 distutils
 ---------
@@ -543,6 +553,10 @@ Removed
 * Removed the :c:func:`PyModule_GetWarningsModule` function that was useless
   now due to the _warnings module was converted to a builtin module in 2.6.
   (Contributed by Hai Shi in :issue:`42599`.)
+
+* Remove deprecated aliases to :ref:`collections-abstract-base-classes` from
+  the :mod:`collections` module.
+  (Contributed by Victor Stinner in :issue:`37324`.)
 
 
 Porting to Python 3.10
