@@ -280,6 +280,11 @@ Other Language Changes
 * Assignment expressions can now be used unparenthesized within set literals
   and set comprehensions, as well as in sequence indexes (but not slices).
 
+* Functions have a new ``__builtins__`` attribute which is used to look for
+  builtin symbols when a function is executed, instead of looking into
+  ``__globals__['__builtins__']``.
+  (Contributed by Mark Shannon in :issue:`42990`.)
+
 
 New Modules
 ===========
@@ -820,6 +825,12 @@ Build Changes
 
   (Contributed by Victor Stinner in :issue:`42856`.)
 
+* Add a new configure ``--without-static-libpython`` option to not build the
+  ``libpythonMAJOR.MINOR.a`` static library and not install the ``python.o``
+  object file.
+
+  (Contributed by Victor Stinner in :issue:`43103`.)
+
 
 C API Changes
 =============
@@ -922,6 +933,14 @@ Porting to Python 3.10
   ``PyList_SET_ITEM(a, b, c) = x`` now fail with a compiler error. It prevents
   bugs like ``if (PyList_SET_ITEM (a, b, c) < 0) ...`` test.
   (Contributed by Zackery Spytz and Victor Stinner in :issue:`30459`.)
+
+* The non-limited API files ``odictobject.h``, ``parser_interface.h``,
+  ``picklebufobject.h``, ``pyarena.h``, ``pyctype.h``, ``pydebug.h``,
+  ``pyfpe.h``, and ``pytime.h`` have been moved to the ``Include/cpython``
+  directory. These files must not be included directly, as they are already
+  included in ``Python.h``: :ref:`Include Files <api-includes>`. If they have
+  been included directly, consider including ``Python.h`` instead.
+  (Contributed by Nicholas Sim in :issue:`35134`)
 
 Deprecated
 ----------
