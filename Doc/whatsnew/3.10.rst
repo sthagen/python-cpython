@@ -588,6 +588,11 @@ Other Language Changes
   ``__globals__["__builtins__"]`` if it exists, else from the current builtins.
   (Contributed by Mark Shannon in :issue:`42990`.)
 
+* Two new builtin functions -- :func:`aiter` and :func:`anext` have been added
+  to provide asynchronous counterparts to :func:`iter` and :func:`next`,
+  respectively.
+  (Contributed by Joshua Bronson, Daniel Pope, and Justin Wang in :issue:`31861`.)
+
 
 New Modules
 ===========
@@ -941,7 +946,6 @@ Optimizations
   for more details. (Contributed by Victor Stinner and Pablo Galindo in
   :issue:`38980`.)
 
-
 * Function parameters and their annotations are no longer computed at runtime,
   but rather at compilation time.  They are stored as a tuple of strings at the
   bytecode level. It is now around 2 times faster to create a function with
@@ -952,6 +956,10 @@ Optimizations
   now sometimes use Crochemore & Perrin's "Two-Way" string searching
   algorithm to avoid quadratic behavior on long strings.  (Contributed
   by Dennis Sweeney in :issue:`41972`)
+
+* Added micro-optimizations to ``_PyType_Lookup()`` to improve type attribute cache lookup
+  performance in the common case of cache hits. This makes the interpreter 1.04 times faster
+  in average (Contributed by Dino Viehland in :issue:`43452`)
 
 Deprecated
 ==========
@@ -1393,4 +1401,32 @@ Removed
   could create names conflicts. For example, ``Python-ast.h`` defined a
   ``Yield`` macro which was conflict with the ``Yield`` name used by the
   Windows ``<winbase.h>`` header. Use the Python :mod:`ast` module instead.
+  (Contributed by Victor Stinner in :issue:`43244`.)
+
+* Remove the compiler and parser functions using ``struct _mod`` type, because
+  the public AST C API was removed:
+
+  * ``PyAST_Compile()``
+  * ``PyAST_CompileEx()``
+  * ``PyAST_CompileObject()``
+  * ``PyFuture_FromAST()``
+  * ``PyFuture_FromASTObject()``
+  * ``PyParser_ASTFromFile()``
+  * ``PyParser_ASTFromFileObject()``
+  * ``PyParser_ASTFromFilename()``
+  * ``PyParser_ASTFromString()``
+  * ``PyParser_ASTFromStringObject()``
+
+  These functions were undocumented and excluded from the limited C API.
+  (Contributed by Victor Stinner in :issue:`43244`.)
+
+* Remove the ``pyarena.h`` header file with functions:
+
+  * ``PyArena_New()``
+  * ``PyArena_Free()``
+  * ``PyArena_Malloc()``
+  * ``PyArena_AddPyObject()``
+
+  These functions were undocumented, excluded from the limited C API, and were
+  only used internally by the compiler.
   (Contributed by Victor Stinner in :issue:`43244`.)
