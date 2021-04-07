@@ -713,10 +713,13 @@ call fails (for example because the path doesn't exist).
    .. versionadded:: 3.5
 
 
-.. method:: Path.stat()
+.. method:: Path.stat(*, follow_symlinks=True)
 
    Return a :class:`os.stat_result` object containing information about this path, like :func:`os.stat`.
    The result is looked up at each call to this method.
+
+   This method normally follows symlinks; to stat a symlink add the argument
+   ``follow_symlinks=False``, or use :meth:`~Path.lstat`.
 
    ::
 
@@ -726,10 +729,18 @@ call fails (for example because the path doesn't exist).
       >>> p.stat().st_mtime
       1327883547.852554
 
+   .. versionchanged:: 3.10
+      The *follow_symlinks* parameter was added.
 
-.. method:: Path.chmod(mode)
+.. method:: Path.chmod(mode, *, follow_symlinks=True)
 
-   Change the file mode and permissions, like :func:`os.chmod`::
+   Change the file mode and permissions, like :func:`os.chmod`.
+
+   This method normally follows symlinks. Some Unix flavours support changing
+   permissions on the symlink itself; on these platforms you may add the
+   argument ``follow_symlinks=False``, or use :meth:`~Path.lchmod`.
+
+   ::
 
       >>> p = Path('setup.py')
       >>> p.stat().st_mode
@@ -738,6 +749,8 @@ call fails (for example because the path doesn't exist).
       >>> p.stat().st_mode
       33060
 
+   .. versionchanged:: 3.10
+      The *follow_symlinks* parameter was added.
 
 .. method:: Path.exists()
 
@@ -1121,6 +1134,20 @@ call fails (for example because the path doesn't exist).
       of :func:`os.symlink`'s.
 
 
+.. method:: Path.link_to(target)
+
+   Make *target* a hard link to this path.
+
+   .. warning::
+
+      This function does not make this path a hard link to *target*, despite
+      the implication of the function and argument names. The argument order
+      (target, link) is the reverse of :func:`Path.symlink_to`, but matches
+      that of :func:`os.link`.
+
+   .. versionadded:: 3.8
+
+
 .. method:: Path.touch(mode=0o666, exist_ok=True)
 
    Create a file at this given path.  If *mode* is given, it is combined
@@ -1143,13 +1170,6 @@ call fails (for example because the path doesn't exist).
 
    .. versionchanged:: 3.8
       The *missing_ok* parameter was added.
-
-
-.. method:: Path.link_to(target)
-
-   Create a hard link pointing to a path named *target*.
-
-   .. versionadded:: 3.8
 
 
 .. method:: Path.write_bytes(data)
