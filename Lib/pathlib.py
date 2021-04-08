@@ -187,7 +187,7 @@ class _WindowsFlavour(_Flavour):
     def resolve(self, path, strict=False):
         s = str(path)
         if not s:
-            return os.getcwd()
+            return path._accessor.getcwd()
         previous_s = None
         if _getfinalpathname is not None:
             if strict:
@@ -246,34 +246,6 @@ class _WindowsFlavour(_Flavour):
             # It's a path on a network drive => 'file://host/share/a/b'
             return 'file:' + urlquote_from_bytes(path.as_posix().encode('utf-8'))
 
-    def gethomedir(self, username):
-        if 'USERPROFILE' in os.environ:
-            userhome = os.environ['USERPROFILE']
-        elif 'HOMEPATH' in os.environ:
-            try:
-                drv = os.environ['HOMEDRIVE']
-            except KeyError:
-                drv = ''
-            userhome = drv + os.environ['HOMEPATH']
-        else:
-            raise RuntimeError("Can't determine home directory")
-
-        if username:
-            # Try to guess user home directory.  By default all users
-            # directories are located in the same place and are named by
-            # corresponding usernames.  If current user home directory points
-            # to nonstandard place, this guess is likely wrong.
-            if os.environ['USERNAME'] != username:
-                drv, root, parts = self.parse_parts((userhome,))
-                if parts[-1] != os.environ['USERNAME']:
-                    raise RuntimeError("Can't determine home directory "
-                                       "for %r" % username)
-                parts[-1] = username
-                if drv or root:
-                    userhome = drv + root + self.join(parts[1:])
-                else:
-                    userhome = self.join(parts)
-        return userhome
 
 class _PosixFlavour(_Flavour):
     sep = '/'
@@ -352,7 +324,7 @@ class _PosixFlavour(_Flavour):
             return path
         # NOTE: according to POSIX, getcwd() cannot contain path components
         # which are symlinks.
-        base = '' if path.is_absolute() else os.getcwd()
+        base = '' if path.is_absolute() else accessor.getcwd()
         return _resolve(base, str(path)) or sep
 
     def is_reserved(self, parts):
@@ -363,21 +335,6 @@ class _PosixFlavour(_Flavour):
         # for portability to other applications.
         bpath = bytes(path)
         return 'file://' + urlquote_from_bytes(bpath)
-
-    def gethomedir(self, username):
-        if not username:
-            try:
-                return os.environ['HOME']
-            except KeyError:
-                import pwd
-                return pwd.getpwuid(os.getuid()).pw_dir
-        else:
-            import pwd
-            try:
-                return pwd.getpwnam(username).pw_dir
-            except KeyError:
-                raise RuntimeError("Can't determine home directory "
-                                   "for %r" % username)
 
 
 _windows_flavour = _WindowsFlavour()
@@ -460,6 +417,10 @@ class _NormalAccessor(_Accessor):
             return grp.getgrgid(self.stat(path).st_gid).gr_name
         except ImportError:
             raise NotImplementedError("Path.group() is unsupported on this system")
+
+    getcwd = os.getcwd
+
+    expanduser = staticmethod(os.path.expanduser)
 
 
 _normal_accessor = _NormalAccessor()
@@ -1096,14 +1057,14 @@ class Path(PurePath):
         """Return a new path pointing to the current working directory
         (as returned by os.getcwd()).
         """
-        return cls(os.getcwd())
+        return cls(cls()._accessor.getcwd())
 
     @classmethod
     def home(cls):
         """Return a new path pointing to the user's home directory (as
         returned by os.path.expanduser('~')).
         """
-        return cls(cls()._flavour.gethomedir(None))
+        return cls("~").expanduser()
 
     def samefile(self, other_path):
         """Return whether other_path is the same or not as this file
@@ -1165,7 +1126,7 @@ class Path(PurePath):
             return self
         # FIXME this must defer to the specific flavour (and, under Windows,
         # use nt._getfullpathname())
-        return self._from_parts([os.getcwd()] + self._parts)
+        return self._from_parts([self._accessor.getcwd()] + self._parts)
 
     def resolve(self, strict=False):
         """
@@ -1515,7 +1476,9 @@ class Path(PurePath):
         """
         if (not (self._drv or self._root) and
             self._parts and self._parts[0][:1] == '~'):
-            homedir = self._flavour.gethomedir(self._parts[0][1:])
+            homedir = self._accessor.expanduser(self._parts[0])
+            if homedir[:1] == "~":
+                raise RuntimeError("Could not determine home directory.")
             return self._from_parts([homedir] + self._parts[1:])
 
         return self
