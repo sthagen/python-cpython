@@ -2781,6 +2781,59 @@ class TestSlots(unittest.TestCase):
         # We can add a new field to the derived instance.
         d.z = 10
 
+    def test_generated_slots(self):
+        @dataclass(slots=True)
+        class C:
+            x: int
+            y: int
+
+        c = C(1, 2)
+        self.assertEqual((c.x, c.y), (1, 2))
+
+        c.x = 3
+        c.y = 4
+        self.assertEqual((c.x, c.y), (3, 4))
+
+        with self.assertRaisesRegex(AttributeError, "'C' object has no attribute 'z'"):
+            c.z = 5
+
+    def test_add_slots_when_slots_exists(self):
+        with self.assertRaisesRegex(TypeError, '^C already specifies __slots__$'):
+            @dataclass(slots=True)
+            class C:
+                __slots__ = ('x',)
+                x: int
+
+    def test_generated_slots_value(self):
+        @dataclass(slots=True)
+        class Base:
+            x: int
+
+        self.assertEqual(Base.__slots__, ('x',))
+
+        @dataclass(slots=True)
+        class Delivered(Base):
+            y: int
+
+        self.assertEqual(Delivered.__slots__, ('x', 'y'))
+
+        @dataclass
+        class AnotherDelivered(Base):
+            z: int
+
+        self.assertTrue('__slots__' not in AnotherDelivered.__dict__)
+
+    def test_returns_new_class(self):
+        class A:
+            x: int
+
+        B = dataclass(A, slots=True)
+        self.assertIsNot(A, B)
+
+        self.assertFalse(hasattr(A, "__slots__"))
+        self.assertTrue(hasattr(B, "__slots__"))
+
+
 class TestDescriptors(unittest.TestCase):
     def test_set_name(self):
         # See bpo-33141.
@@ -3502,7 +3555,7 @@ class TestMatchArgs(unittest.TestCase):
         self.assertEqual(C.__match_args__, ('z',))
 
 
-class TestKwArgs(unittest.TestCase):
+class TestKeywordArgs(unittest.TestCase):
     def test_no_classvar_kwarg(self):
         msg = 'field a is a ClassVar but specifies kw_only'
         with self.assertRaisesRegex(TypeError, msg):
@@ -3659,6 +3712,34 @@ class TestKwArgs(unittest.TestCase):
         b = B(1, c=2, b=3, d=4)
         self.assertEqual(asdict(b), {'a': 3, 'c': 4})
 
+    def test_defaults(self):
+        # For kwargs, make sure we can have defaults after non-defaults.
+        @dataclass
+        class A:
+            a: int = 0
+            _: KW_ONLY
+            b: int
+            c: int = 1
+            d: int
+
+        a = A(d=4, b=3)
+        self.assertEqual(a.a, 0)
+        self.assertEqual(a.b, 3)
+        self.assertEqual(a.c, 1)
+        self.assertEqual(a.d, 4)
+
+        # Make sure we still check for non-kwarg non-defaults not following
+        # defaults.
+        err_regex = "non-default argument 'z' follows default argument"
+        with self.assertRaisesRegex(TypeError, err_regex):
+            @dataclass
+            class A:
+                a: int = 0
+                z: int
+                _: KW_ONLY
+                b: int
+                c: int = 1
+                d: int
 
 if __name__ == '__main__':
     unittest.main()
