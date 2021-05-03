@@ -43,8 +43,8 @@ directly specified in the ``InventoryItem`` definition shown above.
 
 .. versionadded:: 3.7
 
-Module-level decorators, classes, and functions
------------------------------------------------
+Module contents
+---------------
 
 .. decorator:: dataclass(*, init=True, repr=True, eq=True, order=False, unsafe_hash=False, frozen=False, match_args=True, kw_only=False, slots=False)
 
@@ -168,6 +168,8 @@ Module-level decorators, classes, and functions
      ``__match_args__`` is already defined in the class, then
      ``__match_args__`` will not be generated.
 
+    .. versionadded:: 3.10
+
    - ``kw_only``: If true (the default value is ``False``), then all
      fields will be marked as keyword-only.  If a field is marked as
      keyword-only, then the only affect is that the :meth:`__init__`
@@ -175,12 +177,16 @@ Module-level decorators, classes, and functions
      with a keyword when :meth:`__init__` is called.  There is no
      effect on any other aspect of dataclasses.  See the
      :term:`parameter` glossary entry for details.  Also see the
-     ``dataclasses.KW_ONLY`` section.
+     :const:`KW_ONLY` section.
+
+    .. versionadded:: 3.10
 
    - ``slots``: If true (the default is ``False``), :attr:`__slots__` attribute
      will be generated and new class will be returned instead of the original one.
      If :attr:`__slots__` is already defined in the class, then :exc:`TypeError`
      is raised.
+
+    .. versionadded:: 3.10
 
    ``field``\s may optionally specify a default value, using normal
    Python syntax::
@@ -214,10 +220,10 @@ Module-level decorators, classes, and functions
      c = C()
      c.mylist += [1, 2, 3]
 
-   As shown above, the ``MISSING`` value is a sentinel object used to
+   As shown above, the :const:`MISSING` value is a sentinel object used to
    detect if the ``default`` and ``default_factory`` parameters are
    provided.  This sentinel is used because ``None`` is a valid value
-   for ``default``.  No code should directly use the ``MISSING``
+   for ``default``.  No code should directly use the :const:`MISSING`
    value.
 
    The parameters to :func:`field` are:
@@ -266,6 +272,8 @@ Module-level decorators, classes, and functions
    - ``kw_only``: If true, this field will be marked as keyword-only.
      This is used when the generated :meth:`__init__` method's
      parameters are computed.
+
+    .. versionadded:: 3.10
 
    If the default value of a field is specified by a call to
    :func:`field()`, then the class attribute for this field will be
@@ -425,6 +433,38 @@ Module-level decorators, classes, and functions
      def is_dataclass_instance(obj):
          return is_dataclass(obj) and not isinstance(obj, type)
 
+.. data:: MISSING
+
+   A sentinel value signifying a missing default or default_factory.
+
+.. data:: KW_ONLY
+
+   A sentinel value used a type annotation.  Any fields after a
+   pseudo-field with the type of :const:`KW_ONLY` are marked as
+   keyword-only fields.  Note that a pseudo-field of type
+   :const:`KW_ONLY` is otherwise completely ignored.  This includes the
+   name of such a field.  By convention, a name of ``_`` is used for a
+   :const:`KW_ONLY` field.  Keyword-only fields signify
+   :meth:`__init__` parameters that must be specified as keywords when
+   the class is instantiated.
+
+   In this example, the fields ``y`` and ``z`` will be marked as keyword-only fields::
+
+    @dataclass
+    class Point:
+      x: float
+      _: KW_ONLY
+      y: float
+      z: float
+
+    p = Point(0, y=1.5, z=2.0)
+
+.. exception:: FrozenInstanceError
+
+   Raised when an implicitly defined :meth:`__setattr__` or
+   :meth:`__delattr__` is called on a dataclass which was defined with
+   ``frozen=True``. It is a subclass of :exc:`AttributeError`.
+
 Post-init processing
 --------------------
 
@@ -542,9 +582,9 @@ Re-ordering of keyword-only parameters in :meth:`__init__`
 
 After the parameters needed for :meth:`__init__` are computed, any
 keyword-only parameters are moved to come after all regular
-(non-keyword-only) fields.  In this example, ``Base.y``, ``Base.w``,
-and ``D.t`` are keyword-only fields, and ``Base.x`` and ``D.z`` are
-regular fields::
+(non-keyword-only) parameters.  In this example, ``Base.y``,
+``Base.w``, and ``D.t`` are keyword-only fields, and ``Base.x`` and
+``D.z`` are regular fields::
 
   @dataclass
   class Base:
@@ -643,12 +683,3 @@ Mutable default values
          x: list = field(default_factory=list)
 
      assert D().x is not D().x
-
-Exceptions
-----------
-
-.. exception:: FrozenInstanceError
-
-   Raised when an implicitly defined :meth:`__setattr__` or
-   :meth:`__delattr__` is called on a dataclass which was defined with
-   ``frozen=True``. It is a subclass of :exc:`AttributeError`.
