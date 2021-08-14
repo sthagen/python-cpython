@@ -1014,6 +1014,9 @@ class ExceptionTests(unittest.TestCase):
 
     def test_no_hang_on_context_chain_cycle2(self):
         # See issue 25782. Cycle at head of context chain.
+        while gc.collect():
+            # Remove this once issue 44895 is resolved
+            pass
 
         class A(Exception):
             pass
@@ -1168,6 +1171,21 @@ class ExceptionTests(unittest.TestCase):
         e, v, tb = g()
         self.assertIsInstance(v, RecursionError, type(v))
         self.assertIn("maximum recursion depth exceeded", str(v))
+
+
+    @cpython_only
+    def test_trashcan_recursion(self):
+        # See bpo-33930
+
+        def foo():
+            o = object()
+            for x in range(1_000_000):
+                # Create a big chain of method objects that will trigger
+                # a deep chain of calls when they need to be destructed.
+                o = o.__dir__
+
+        foo()
+        support.gc_collect()
 
     @cpython_only
     def test_recursion_normalizing_exception(self):
