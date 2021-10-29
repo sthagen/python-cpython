@@ -372,6 +372,17 @@ def requires_mac_ver(*min_version):
     return decorator
 
 
+def skip_if_buildbot(reason=None):
+    """Decorator raising SkipTest if running on a buildbot."""
+    if not reason:
+        reason = 'not suitable for buildbots'
+    if sys.platform == 'win32':
+        isbuildbot = os.environ.get('USERNAME') == 'Buildbot'
+    else:
+        isbuildbot = os.environ.get('USER') == 'buildbot'
+    return unittest.skipIf(isbuildbot, reason)
+
+
 def system_must_validate_cert(f):
     """Skip the test on TLS certificate validation failures."""
     @functools.wraps(f)
@@ -1177,12 +1188,14 @@ def flush_std_streams():
 def print_warning(msg):
     # bpo-45410: Explicitly flush stdout to keep logs in order
     flush_std_streams()
-    # bpo-39983: Print into sys.__stderr__ to display the warning even
-    # when sys.stderr is captured temporarily by a test
-    stream = sys.__stderr__
+    stream = print_warning.orig_stderr
     for line in msg.splitlines():
         print(f"Warning -- {line}", file=stream)
     stream.flush()
+
+# bpo-39983: Store the original sys.stderr at Python startup to be able to
+# log warnings even if sys.stderr is captured temporarily by a test.
+print_warning.orig_stderr = sys.stderr
 
 
 # Flag used by saved_test_environment of test.libregrtest.save_env,
