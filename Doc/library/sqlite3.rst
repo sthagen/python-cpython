@@ -662,6 +662,40 @@ Connection Objects
       .. versionadded:: 3.7
 
 
+   .. method:: getlimit(category, /)
+
+      Get a connection run-time limit. *category* is the limit category to be
+      queried.
+
+      Example, query the maximum length of an SQL statement::
+
+         import sqlite3
+         con = sqlite3.connect(":memory:")
+         lim = con.getlimit(sqlite3.SQLITE_LIMIT_SQL_LENGTH)
+         print(f"SQLITE_LIMIT_SQL_LENGTH={lim}")
+
+      .. versionadded:: 3.11
+
+
+   .. method:: setlimit(category, limit, /)
+
+      Set a connection run-time limit. *category* is the limit category to be
+      set. *limit* is the new limit. If the new limit is a negative number, the
+      limit is unchanged.
+
+      Attempts to increase a limit above its hard upper bound are silently
+      truncated to the hard upper bound. Regardless of whether or not the limit
+      was changed, the prior value of the limit is returned.
+
+      Example, limit the number of attached databases to 1::
+
+         import sqlite3
+         con = sqlite3.connect(":memory:")
+         con.setlimit(sqlite3.SQLITE_LIMIT_ATTACHED, 1)
+
+      .. versionadded:: 3.11
+
+
 .. _sqlite3-cursor-objects:
 
 Cursor Objects
@@ -1095,6 +1129,12 @@ If a timestamp stored in SQLite has a fractional part longer than 6
 numbers, its value will be truncated to microsecond precision by the
 timestamp converter.
 
+.. note::
+
+   The default "timestamp" converter ignores UTC offsets in the database and
+   always returns a naive :class:`datetime.datetime` object. To preserve UTC
+   offsets in timestamps, either leave converters disabled, or register an
+   offset-aware converter with :func:`register_converter`.
 
 .. _sqlite3-controlling-transactions:
 
