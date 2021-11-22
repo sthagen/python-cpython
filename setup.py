@@ -1004,33 +1004,28 @@ class PyBuildExt(build_ext):
         # libm is needed by delta_new() that uses round() and by accum() that
         # uses modf().
         self.addext(Extension('_datetime', ['_datetimemodule.c']))
-        # zoneinfo module
-        self.add(Extension('_zoneinfo', ['_zoneinfo.c']))
+        self.addext(Extension('_zoneinfo', ['_zoneinfo.c']))
         # random number generator implemented in C
-        self.add(Extension("_random", ["_randommodule.c"]))
-        # bisect
-        self.add(Extension("_bisect", ["_bisectmodule.c"]))
-        # heapq
-        self.add(Extension("_heapq", ["_heapqmodule.c"]))
+        self.addext(Extension("_random", ["_randommodule.c"]))
+        self.addext(Extension("_bisect", ["_bisectmodule.c"]))
+        self.addext(Extension("_heapq", ["_heapqmodule.c"]))
         # C-optimized pickle replacement
-        self.add(Extension("_pickle", ["_pickle.c"]))
+        self.addext(Extension("_pickle", ["_pickle.c"]))
         # _json speedups
-        self.add(Extension("_json", ["_json.c"]))
+        self.addext(Extension("_json", ["_json.c"]))
 
         # profiler (_lsprof is for cProfile.py)
-        self.add(Extension('_lsprof', ['_lsprof.c', 'rotatingtree.c']))
+        self.addext(Extension('_lsprof', ['_lsprof.c', 'rotatingtree.c']))
         # static Unicode character database
         self.addext(Extension('unicodedata', ['unicodedata.c']))
-        # _opcode module
-        self.add(Extension('_opcode', ['_opcode.c']))
+        self.addext(Extension('_opcode', ['_opcode.c']))
+
         # asyncio speedups
-        self.add(Extension("_asyncio", ["_asynciomodule.c"]))
-        # _queue module
-        self.add(Extension("_queue", ["_queuemodule.c"]))
-        # _statistics module
-        self.add(Extension("_statistics", ["_statisticsmodule.c"]))
-        # _typing module
-        self.add(Extension("_typing", ["_typingmodule.c"]))
+        self.addext(Extension("_asyncio", ["_asynciomodule.c"]))
+
+        self.addext(Extension("_queue", ["_queuemodule.c"]))
+        self.addext(Extension("_statistics", ["_statisticsmodule.c"]))
+        self.addext(Extension("_typing", ["_typingmodule.c"]))
 
         # Modules with some UNIX dependencies -- on by default:
         # (If you have a really backward UNIX, select and socket may not be
