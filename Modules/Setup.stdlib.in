@@ -66,6 +66,11 @@
 @MODULE__LZMA_TRUE@_lzma _lzmamodule.c
 @MODULE_ZLIB_TRUE@zlib zlibmodule.c
 
+# dbm/gdbm
+# dbm needs either libndbm, libgdbm_compat, or libdb 5.x
+# gdbm module needs -lgdbm
+@MODULE__GDBM_TRUE@_gdbm _gdbmmodule.c
+
 # hashing builtins, can be disabled with --without-builtin-hashlib-hashes
 @MODULE__MD5_TRUE@_md5 md5module.c
 @MODULE__SHA1_TRUE@_sha1 sha1module.c
@@ -98,6 +103,8 @@
 # Modules with some UNIX dependencies
 #
 
+# needs -lcrypt on some systems
+@MODULE__CRYPT_TRUE@_crypt _cryptmodule.c
 @MODULE_FCNTL_TRUE@fcntl fcntlmodule.c
 @MODULE_GRP_TRUE@grp grpmodule.c
 @MODULE_MMAP_TRUE@mmap mmapmodule.c
@@ -109,6 +116,7 @@
 @MODULE__POSIXSUBPROCESS_TRUE@_posixsubprocess _posixsubprocess.c
 @MODULE_RESOURCE_TRUE@resource resource.c
 @MODULE_SELECT_TRUE@select selectmodule.c
+@MODULE__SOCKET_TRUE@_socket socketmodule.c
 # AIX has shadow passwords, but does not provide getspent API
 @MODULE_SPWD_TRUE@spwd spwdmodule.c
 @MODULE_SYSLOG_TRUE@syslog syslogmodule.c
@@ -119,6 +127,11 @@
 # Modules with third party dependencies
 #
 @MODULE__SQLITE3_TRUE@_sqlite3 _sqlite/connection.c _sqlite/cursor.c _sqlite/microprotocols.c _sqlite/module.c _sqlite/prepare_protocol.c _sqlite/row.c _sqlite/statement.c _sqlite/util.c
+
+# needs -lssl and -lcrypt
+@MODULE__SSL_TRUE@_ssl _ssl.c
+# needs -lcrypt
+@MODULE__HASHLIB_TRUE@_hashlib _hashopenssl.c
 
 
 ############################################################################

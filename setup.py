@@ -1034,6 +1034,8 @@ class PyBuildExt(build_ext):
         self.addext(Extension('fcntl', ['fcntlmodule.c']))
         # grp(3)
         self.addext(Extension('grp', ['grpmodule.c']))
+
+        self.addext(Extension('_socket', ['socketmodule.c']))
         self.addext(Extension('spwd', ['spwdmodule.c']))
 
         # select(2); not on ancient System V
@@ -1239,23 +1241,7 @@ class PyBuildExt(build_ext):
             self.missing.append('_curses_panel')
 
     def detect_crypt(self):
-        # crypt module.
-        if VXWORKS:
-            # bpo-31904: crypt() function is not provided by VxWorks.
-            # DES_crypt() OpenSSL provides is too weak to implement
-            # the encryption.
-            self.missing.append('_crypt')
-            return
-
-        if self.compiler.find_library_file(self.lib_dirs, 'crypt'):
-            libs = ['crypt']
-        else:
-            libs = []
-
-        self.add(Extension('_crypt', ['_cryptmodule.c'], libraries=libs))
-
-    def detect_socket(self):
-        self.add(Extension('_socket', ['socketmodule.c']))
+         self.addext(Extension('_crypt', ['_cryptmodule.c']))
 
     def detect_dbm_gdbm(self):
         # Modules that provide persistent dictionary-like semantics.  You will
@@ -1270,11 +1256,9 @@ class PyBuildExt(build_ext):
 
         # libdb, gdbm and ndbm headers and libraries
         have_ndbm_h = sysconfig.get_config_var("HAVE_NDBM_H")
-        have_gdbm_h = sysconfig.get_config_var("HAVE_GDBM_H")
         have_gdbm_ndbm_h = sysconfig.get_config_var("HAVE_GDBM_NDBM_H")
         have_gdbm_dash_ndbm_h = sysconfig.get_config_var("HAVE_GDBM_DASH_NDBM_H")
         have_libndbm = sysconfig.get_config_var("HAVE_LIBNDBM")
-        have_libgdbm = sysconfig.get_config_var("HAVE_LIBGDBM")
         have_libgdbm_compat = sysconfig.get_config_var("HAVE_LIBGDBM_COMPAT")
         have_libdb = sysconfig.get_config_var("HAVE_LIBDB")
 
@@ -1332,11 +1316,7 @@ class PyBuildExt(build_ext):
                 self.missing.append('_dbm')
 
         # Anthony Baxter's gdbm module.  GNU dbm(3) will require -lgdbm:
-        if 'gdbm' in dbm_order and have_libgdbm:
-            self.add(Extension('_gdbm', ['_gdbmmodule.c'],
-                               libraries=['gdbm']))
-        else:
-            self.missing.append('_gdbm')
+        self.addext(Extension('_gdbm', ['_gdbmmodule.c']))
 
     def detect_sqlite(self):
         sources = [
@@ -1460,7 +1440,6 @@ class PyBuildExt(build_ext):
         self.detect_test_extensions()
         self.detect_readline_curses()
         self.detect_crypt()
-        self.detect_socket()
         self.detect_openssl_hashlib()
         self.detect_hash_builtins()
         self.detect_dbm_gdbm()
@@ -1898,81 +1877,8 @@ class PyBuildExt(build_ext):
         )
 
     def detect_openssl_hashlib(self):
-        # Detect SSL support for the socket module (via _ssl)
-        config_vars = sysconfig.get_config_vars()
-
-        def split_var(name, sep):
-            # poor man's shlex, the re module is not available yet.
-            value = config_vars.get(name)
-            if not value:
-                return ()
-            # This trick works because ax_check_openssl uses --libs-only-L,
-            # --libs-only-l, and --cflags-only-I.
-            value = ' ' + value
-            sep = ' ' + sep
-            return [v.strip() for v in value.split(sep) if v.strip()]
-
-        openssl_includes = split_var('OPENSSL_INCLUDES', '-I')
-        openssl_libdirs = split_var('OPENSSL_LDFLAGS', '-L')
-        openssl_libs = split_var('OPENSSL_LIBS', '-l')
-        openssl_rpath = config_vars.get('OPENSSL_RPATH')
-        if not openssl_libs:
-            # libssl and libcrypto not found
-            self.missing.extend(['_ssl', '_hashlib'])
-            return None, None
-
-        # Find OpenSSL includes
-        ssl_incs = find_file(
-            'openssl/ssl.h', self.inc_dirs, openssl_includes
-        )
-        if ssl_incs is None:
-            self.missing.extend(['_ssl', '_hashlib'])
-            return None, None
-
-        if openssl_rpath == 'auto':
-            runtime_library_dirs = openssl_libdirs[:]
-        elif not openssl_rpath:
-            runtime_library_dirs = []
-        else:
-            runtime_library_dirs = [openssl_rpath]
-
-        openssl_extension_kwargs = dict(
-            include_dirs=openssl_includes,
-            library_dirs=openssl_libdirs,
-            libraries=openssl_libs,
-            runtime_library_dirs=runtime_library_dirs,
-        )
-
-        # This static linking is NOT OFFICIALLY SUPPORTED.
-        # Requires static OpenSSL build with position-independent code. Some
-        # features like DSO engines or external OSSL providers don't work.
-        # Only tested on GCC and clang on X86_64.
-        if os.environ.get("PY_UNSUPPORTED_OPENSSL_BUILD") == "static":
-            extra_linker_args = []
-            for lib in openssl_extension_kwargs["libraries"]:
-                # link statically
-                extra_linker_args.append(f"-l:lib{lib}.a")
-                # don't export symbols
-                extra_linker_args.append(f"-Wl,--exclude-libs,lib{lib}.a")
-            openssl_extension_kwargs["extra_link_args"] = extra_linker_args
-            # don't link OpenSSL shared libraries.
-            # include libz for OpenSSL build flavors with compression support
-            openssl_extension_kwargs["libraries"] = ["z"]
-
-        self.add(
-            Extension(
-                '_ssl',
-                ['_ssl.c'],
-                **openssl_extension_kwargs
-            )
-        )
-        self.add(
-            Extension(
-                '_hashlib',
-                ['_hashopenssl.c'],
-                **openssl_extension_kwargs,
-            )
-        )
+        self.addext(Extension('_ssl', ['_ssl.c']))
+        self.addext(Extension('_hashlib', ['_hashopenssl.c']))
 
     def detect_hash_builtins(self):
         # By default we always compile these even when OpenSSL is available

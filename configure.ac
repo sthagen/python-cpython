@@ -96,8 +96,17 @@ AC_SUBST(host)
 # pybuilddir.txt will be created by --generate-posix-vars in the Makefile
 rm -f pybuilddir.txt
 
-AC_CHECK_PROGS(PYTHON_FOR_REGEN, python$PACKAGE_VERSION python3 python, python3)
+AC_CHECK_PROGS([PYTHON_FOR_REGEN],
+  [python$PACKAGE_VERSION python3.10 python3.9 python3.8 python3.7 python3.6 python3 python],
+  [python3])
 AC_SUBST(PYTHON_FOR_REGEN)
+
+AC_MSG_CHECKING([Python for regen version])
+if command -v $PYTHON_FOR_REGEN >/dev/null 2>&1; then
+  AC_MSG_RESULT([$($PYTHON_FOR_REGEN -V 2>/dev/null)])
+else
+  AC_MSG_RESULT([missing])
+fi
 
 if test "$cross_compiling" = yes; then
     AC_MSG_CHECKING([for python interpreter for cross build])
@@ -3294,11 +3303,19 @@ else
   TCLTK_LIBS="$with_tcltk_libs"
 fi
 
-# check for _gdbmmodulec dependencies
-AC_CHECK_HEADERS([gdbm.h], [
-  LIBS_SAVE=$LIBS
-  AC_CHECK_LIB([gdbm], [gdbm_open])
-  LIBS=$LIBS_SAVE
+dnl check for _gdbmmodule dependencies
+dnl NOTE: gdbm does not provide a pkgconf file.
+AC_ARG_VAR([GDBM_CFLAGS], [C compiler flags for gdbm])
+AC_ARG_VAR([GDBM_LIBS], [additional linker flags for gdbm])
+WITH_SAVE_ENV([
+  CPPFLAGS="$GDBM_CFLAGS $CFLAGS"
+  LDFLAGS="$GDBM_LIBS $LDFLAGS"
+  AC_CHECK_HEADERS([gdbm.h], [
+    AC_CHECK_LIB([gdbm], [gdbm_open], [
+      have_gdbm=yes
+      GDBM_LIBS="$GDBM_LIBS -lgdbm"
+    ], [have_gdbm=no])
+  ], [have_gdbm=no])
 ])
 
 # check for _dbmmodule.c dependencies
@@ -3366,21 +3383,23 @@ AC_CHECK_HEADERS([db.h], [
 AC_MSG_CHECKING(for --with-dbmliborder)
 AC_ARG_WITH(dbmliborder,
             AS_HELP_STRING([--with-dbmliborder=db1:db2:...], [override order to check db backends for dbm; a valid value is a colon separated string with the backend names `ndbm', `gdbm' and `bdb'.]),
-[
-if test x$with_dbmliborder = xyes
-then
-AC_MSG_ERROR([proper usage is --with-dbmliborder=db1:db2:...])
-else
-  as_save_IFS=$IFS
-  IFS=:
-  for db in $with_dbmliborder; do
-    if test x$db != xndbm && test x$db != xgdbm && test x$db != xbdb
-    then
-      AC_MSG_ERROR([proper usage is --with-dbmliborder=db1:db2:...])
-    fi
-  done
-  IFS=$as_save_IFS
-fi])
+[], [with_dbmliborder=ndbm:gdbm:bdb])
+
+have_gdbm_dbmliborder=no
+as_save_IFS=$IFS
+IFS=:
+for db in $with_dbmliborder; do
+    AS_CASE([$db],
+      [ndbm], [],
+      [gdbm], [have_gdbm_dbmliborder=yes],
+      [bdb], [],
+      [with_dbmliborder=error]
+    )
+done
+IFS=$as_save_IFS
+AS_VAR_IF([with_dbmliborder], [error], [
+  AC_MSG_ERROR([proper usage is --with-dbmliborder=db1:db2:... (ndbm:gdbm:bdb)])
+])
 AC_MSG_RESULT($with_dbmliborder)
 
 # Templates for things AC_DEFINEd more than once.
@@ -4181,25 +4200,46 @@ AC_CHECK_FUNCS(setpgrp,
     [])
 )
 
-# We search for both crypt and crypt_r as one or the other may be defined
-# This gets us our -lcrypt in LIBS when required on the target platform.
-# Save/restore LIBS to avoid linking libpython with libcrypt.
-LIBS_SAVE=$LIBS
-AC_SEARCH_LIBS(crypt_r, crypt)
-LIBS="$LIBS_SAVE"
-AC_SEARCH_LIBS(crypt, crypt)
+dnl We search for both crypt and crypt_r as one or the other may be defined
+dnl libxcrypt provides <crypt.h> and libcrypt with crypt_r() since
+dnl at least 3.1.1 from 2015.
+dnl FreeBSD defines crypt_r() in <unistd.h>
+AH_TEMPLATE([HAVE_CRYPT_R], [Define if you have the crypt_r() function.])
 
-AC_CHECK_FUNC(crypt_r,
-  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <crypt.h>
-]], [[
-struct crypt_data d;
-char *r = crypt_r("", "", &d);
-]])],
-    [AC_DEFINE(HAVE_CRYPT_R, 1, [Define if you have the crypt_r() function.])],
-    [])
-)
-LIBS=$LIBS_SAVE
+PKG_CHECK_MODULES([LIBCRYPT], [libxcrypt >= 3.1.1], [
+  AC_DEFINE([HAVE_CRYPT_R], [1])
+], [
+  WITH_SAVE_ENV([
+    AC_SEARCH_LIBS([crypt_r], [crypt], [
+      AC_DEFINE([HAVE_CRYPT_R], [1])
+      if test "$ac_cv_search_crypt_r" = "none required"; then
+        LIBCRYPT_LIBS=
+      else
+        LIBCRYPT_LIBS="$ac_cv_search_crypt_r"
+      fi
+    ])
+  ])
+])
+
+WITH_SAVE_ENV([
+  CPPFLAGS="$LIBCRYPT_CFLAGS $CFLAGS"
+  LDFLAGS="$LIBCRYPT_LIBS $LDFLAGS"
+  AC_CACHE_CHECK([for crypt or crypt_r], [ac_cv_crypt_crypt], [
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([
+        #ifdef HAVE_CRYPT_H
+          #include <crypt.h>
+        #endif
+        #include <unistd.h>
+      ], [
+        #ifdef HAVE_CRYPT_R
+          void *x = crypt_r;
+        #else
+          void *x = crypt;
+        #endif
+      ])
+    ], [ac_cv_crypt_crypt=yes], [ac_cv_crypt_crypt=no])
+  ])
+])
 
 AC_CHECK_FUNCS(clock_gettime, [], [
     AC_CHECK_LIB(rt, clock_gettime, [
@@ -5613,6 +5653,7 @@ SRCDIRS="\
   Parser \
   Programs \
   Python \
+  Python/frozen_modules \
   Python/deepfreeze"
 AC_MSG_CHECKING(for build directories)
 for dir in $SRCDIRS; do
@@ -5860,6 +5901,12 @@ ac_includes_default="$save_includes_default"
 AX_CHECK_OPENSSL([have_openssl=yes],[have_openssl=no])
 
 # rpath to libssl and libcrypto
+AS_VAR_IF([GNULD], [yes], [
+  rpath_arg="-Wl,--enable-new-dtags,-rpath="
+], [
+  rpath_arg="-Wl,-rpath="
+])
+
 AC_MSG_CHECKING(for --with-openssl-rpath)
 AC_ARG_WITH(openssl-rpath,
     AS_HELP_STRING([--with-openssl-rpath=@<:@DIR|auto|no@:>@],
@@ -5872,58 +5919,104 @@ AC_ARG_WITH(openssl-rpath,
     [with_openssl_rpath=no]
 )
 AS_CASE($with_openssl_rpath,
-    [auto|yes],[OPENSSL_RPATH=auto],
-    [no],[OPENSSL_RPATH=],
+    [auto|yes], [
+      OPENSSL_RPATH=auto
+      dnl look for linker directories
+      for arg in "$OPENSSL_LDFLAGS"; do
+        AS_CASE([$arg],
+          [-L*], [OPENSSL_LDFLAGS_RPATH="$OPENSSL_LDFLAGS_RPATH ${rpath_arg}$(echo $arg | cut -c3-)"]
+        )
+      done
+    ],
+    [no], [OPENSSL_RPATH=],
     [AS_IF(
         [test -d "$with_openssl_rpath"],
-        [OPENSSL_RPATH="$with_openssl_rpath"],
+        [
+          OPENSSL_RPATH="$with_openssl_rpath"
+          OPENSSL_LDFLAGS_RPATH="${rpath_arg}$with_openssl_rpath"
+        ],
         AC_MSG_ERROR([--with-openssl-rpath "$with_openssl_rpath" is not a directory]))
     ]
 )
 AC_MSG_RESULT($OPENSSL_RPATH)
 AC_SUBST([OPENSSL_RPATH])
 
+# This static linking is NOT OFFICIALLY SUPPORTED and not advertised.
+# Requires static OpenSSL build with position-independent code. Some features
+# like DSO engines or external OSSL providers don't work. Only tested with GCC
+# and clang on X86_64.
+AS_VAR_IF([PY_UNSUPPORTED_OPENSSL_BUILD], [static], [
+  AC_MSG_CHECKING([for unsupported static openssl build])
+  new_OPENSSL_LIBS=
+  for arg in $OPENSSL_LIBS; do
+    AS_CASE([$arg],
+      [-l*], [
+        libname=$(echo $arg | cut -c3-)
+        new_OPENSSL_LIBS="$new_OPENSSL_LIBS -l:lib${libname}.a -Wl,--exclude-libs,lib${libname}.a"
+      ],
+      [new_OPENSSL_LIBS="$new_OPENSSL_LIBS $arg"]
+    )
+  done
+  dnl include libz for OpenSSL build flavors with compression support
+  OPENSSL_LIBS="$new_OPENSSL_LIBS $ZLIB_LIBS"
+  AC_MSG_RESULT([$OPENSSL_LIBS])
+])
+
+dnl AX_CHECK_OPENSSL does not export libcrypto-only libs
+LIBCRYPTO_LIBS=
+for arg in $OPENSSL_LIBS; do
+  AS_CASE([$arg],
+    [-l*ssl*|-Wl*ssl*], [],
+    [LIBCRYPTO_LIBS="$LIBCRYPTO_LIBS $arg"]
+  )
+done
+
 # check if OpenSSL libraries work as expected
-AC_CACHE_CHECK([whether OpenSSL provides required APIs], [ac_cv_working_openssl], [
-save_LIBS="$LIBS"
-save_CFLAGS="$CFLAGS"
-save_LDFLAGS="$LDFLAGS"
-LIBS="$LIBS $OPENSSL_LIBS"
-CFLAGS="$CFLAGS_NODIST $OPENSSL_INCLUDES"
-LDFLAGS="$LDFLAGS $OPENSSL_LDFLAGS"
+WITH_SAVE_ENV([
+  LIBS="$LIBS $OPENSSL_LIBS"
+  CFLAGS="$CFLAGS $OPENSSL_INCLUDES"
+  LDFLAGS="$LDFLAGS $OPENSSL_LDFLAGS $OPENSSL_LDFLAGS_RPATH"
 
-AC_LINK_IFELSE([AC_LANG_PROGRAM([[
-#include <openssl/opensslv.h>
-#include <openssl/evp.h>
-#include <openssl/ssl.h>
+  AC_CACHE_CHECK([whether OpenSSL provides required ssl module APIs], [ac_cv_working_openssl_ssl], [
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([
+      #include <openssl/opensslv.h>
+      #include <openssl/ssl.h>
+      #if OPENSSL_VERSION_NUMBER < 0x10101000L
+        #error "OpenSSL >= 1.1.1 is required"
+      #endif
+      static void keylog_cb(const SSL *ssl, const char *line) {}
+    ], [
+      SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+      SSL_CTX_set_keylog_callback(ctx, keylog_cb);
+      SSL *ssl = SSL_new(ctx);
+      X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+      X509_VERIFY_PARAM_set1_host(param, "python.org", 0);
+      SSL_free(ssl);
+      SSL_CTX_free(ctx);
+    ])], [ac_cv_working_openssl_ssl=yes], [ac_cv_working_openssl_ssl=no])
+  ])
+])
 
-#if OPENSSL_VERSION_NUMBER < 0x10101000L
-#error "OpenSSL >= 1.1.1 is required"
-#endif
+WITH_SAVE_ENV([
+  LIBS="$LIBS $LIBCRYPTO_LIBS"
+  CFLAGS="$CFLAGS $OPENSSL_INCLUDES"
+  LDFLAGS="$LDFLAGS $OPENSSL_LDFLAGS $OPENSSL_LDFLAGS_RPATH"
 
-static void keylog_cb(const SSL *ssl, const char *line) {}
-]], [[
-/* SSL APIs */
-SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-SSL_CTX_set_keylog_callback(ctx, keylog_cb);
-SSL *ssl = SSL_new(ctx);
-X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-X509_VERIFY_PARAM_set1_host(param, "python.org", 0);
-SSL_free(ssl);
-SSL_CTX_free(ctx);
-
-/* hashlib APIs */
-OBJ_nid2sn(NID_md5);
-OBJ_nid2sn(NID_sha1);
-OBJ_nid2sn(NID_sha3_512);
-OBJ_nid2sn(NID_blake2b512);
-EVP_PBE_scrypt(NULL, 0, NULL, 0, 2, 8, 1, 0, NULL, 0);
-]])],
-  [ac_cv_working_openssl=yes],
-  [ac_cv_working_openssl=no])
-LIBS="$save_LIBS"
-CFLAGS="$save_CFLAGS"
-LDFLAGS="$save_LDFLAGS"
+  AC_CACHE_CHECK([whether OpenSSL provides required hashlib module APIs], [ac_cv_working_openssl_hashlib], [
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([
+      #include <openssl/opensslv.h>
+      #include <openssl/evp.h>
+      #if OPENSSL_VERSION_NUMBER < 0x10101000L
+        #error "OpenSSL >= 1.1.1 is required"
+      #endif
+    ], [
+      OBJ_nid2sn(NID_md5);
+      OBJ_nid2sn(NID_sha1);
+      OBJ_nid2sn(NID_sha3_512);
+      OBJ_nid2sn(NID_blake2b512);
+      EVP_PBE_scrypt(NULL, 0, NULL, 0, 2, 8, 1, 0, NULL, 0);
+    ])], [ac_cv_working_openssl_hashlib=yes], [ac_cv_working_openssl_hashlib=no])
+  ])
 ])
 
 # ssl module default cipher suite string
@@ -6137,6 +6230,7 @@ PY_STDLIB_MOD_SIMPLE([_posixsubprocess])
 PY_STDLIB_MOD_SIMPLE([_queue])
 PY_STDLIB_MOD_SIMPLE([_random])
 PY_STDLIB_MOD_SIMPLE([select])
+PY_STDLIB_MOD_SIMPLE([_socket])
 PY_STDLIB_MOD_SIMPLE([_struct])
 PY_STDLIB_MOD_SIMPLE([_typing])
 PY_STDLIB_MOD_SIMPLE([_xxsubinterpreters])
@@ -6191,7 +6285,13 @@ PY_STDLIB_MOD([_sha512], [test "$with_builtin_sha512" = yes])
 PY_STDLIB_MOD([_sha3], [test "$with_builtin_sha3" = yes])
 PY_STDLIB_MOD([_blake2], [test "$with_builtin_blake2" = yes])
 
+PY_STDLIB_MOD([_crypt],
+  [], [test "$ac_cv_crypt_crypt" = yes],
+  [$LIBCRYPT_CFLAGS], [$LIBCRYPT_LIBS])
 PY_STDLIB_MOD([_decimal], [], [], [$LIBMPDEC_CFLAGS], [$LIBMPDEC_LDFLAGS])
+PY_STDLIB_MOD([_gdbm],
+  [test "$have_gdbm_dbmliborder" = yes], [test "$have_gdbm" = yes],
+  [$GDBM_CFLAGS], [$GDBM_LIBS])
 PY_STDLIB_MOD([nis],
   [], [test "$have_nis" = yes -a "$ac_cv_header_rpc_rpc_h" = yes],
   [$LIBNSL_CFLAGS], [$LIBNSL_LIBS])
@@ -6210,6 +6310,12 @@ PY_STDLIB_MOD([_bz2], [], [test "$have_bzip2" = yes],
 PY_STDLIB_MOD([_lzma], [], [test "$have_liblzma" = yes],
   [$LIBLZMA_CFLAGS], [$LIBLZMA_LIBS])
 
+dnl OpenSSL bindings
+PY_STDLIB_MOD([_ssl], [], [test "$ac_cv_working_openssl_ssl" = yes],
+  [$OPENSSL_INCLUDES], [$OPENSSL_LDFLAGS $OPENSSL_LDFLAGS_RPATH $OPENSSL_LIBS])
+PY_STDLIB_MOD([_hashlib], [], [test "$ac_cv_working_openssl_hashlib" = yes],
+  [$OPENSSL_INCLUDES], [$OPENSSL_LDFLAGS $OPENSSL_LDFLAGS_RPATH $LIBCRYPTO_LIBS])
+
 dnl test modules
 PY_STDLIB_MOD([_testcapi], [test "$TEST_MODULES" = yes])
 PY_STDLIB_MOD([_testinternalcapi], [test "$TEST_MODULES" = yes])
@@ -6221,8 +6327,8 @@ PY_STDLIB_MOD([_ctypes_test], [test "$TEST_MODULES" = yes], [], [], [-lm])
 
 dnl Limited API template modules.
 dnl The limited C API is not compatible with the Py_TRACE_REFS macro.
-PY_STDLIB_MOD([xxlimited], [test "$Py_TRACE_REFS" = no])
-PY_STDLIB_MOD([xxlimited_35], [test "$Py_TRACE_REFS" = no])
+PY_STDLIB_MOD([xxlimited], [test "$with_trace_refs" = "no"])
+PY_STDLIB_MOD([xxlimited_35], [test "$with_trace_refs" = "no"])
 
 # substitute multiline block, must come after last PY_STDLIB_MOD()
 AC_SUBST([MODULE_BLOCK])
