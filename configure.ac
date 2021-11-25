@@ -2871,31 +2871,51 @@ AC_CHECK_LIB(sendfile, sendfile)
 AC_CHECK_LIB(dl, dlopen)	# Dynamic linking for SunOS/Solaris and SYSV
 AC_CHECK_LIB(dld, shl_load)	# Dynamic linking for HP-UX
 
-# checks for uuid.h location
-AC_CHECK_HEADERS([uuid/uuid.h uuid.h])
 
-AC_CACHE_CHECK([for uuid_generate_time_safe], [ac_cv_lib_uuid_uuid_generate_time_safe], [
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <uuid/uuid.h>]], [[
-#ifndef uuid_generate_time_safe
-void *x = uuid_generate_time_safe
-#endif
-]])],
-[ac_cv_lib_uuid_uuid_generate_time_safe=yes], [ac_cv_lib_uuid_uuid_generate_time_safe=no])
+dnl check for uuid dependencies
+AH_TEMPLATE([HAVE_UUID_H], [Define to 1 if you have the <uuid.h> header file.])
+AH_TEMPLATE([HAVE_UUID_UUID_H], [Define to 1 if you have the <uuid/uuid.h> header file.])
+AH_TEMPLATE([HAVE_UUID_GENERATE_TIME_SAFE], [Define if uuid_generate_time_safe() exists.])
+have_uuid=missing
+
+dnl AIX provides support for RFC4122 (uuid) in libc.a starting with AIX 6.1
+dnl (anno 2007). FreeBSD and OpenBSD provides support in libc as well.
+dnl Little-endian FreeBSD, OpenBSD and NetBSD needs encoding into an octet
+dnl stream in big-endian byte-order
+AC_CHECK_HEADERS([uuid.h], [
+  AC_CHECK_FUNCS([uuid_create uuid_enc_be], [
+    have_uuid=yes
+    LIBUUID_CFLAGS=
+    LIBUUID_LIBS=
+  ])
 ])
-AS_VAR_IF([ac_cv_lib_uuid_uuid_generate_time_safe], [yes], [
-  AC_DEFINE(HAVE_UUID_GENERATE_TIME_SAFE, 1, [Define if uuid_generate_time_safe() exists.])
+
+AS_VAR_IF([have_uuid], [missing], [
+  PKG_CHECK_MODULES(
+    [LIBUUID], [uuid >= 2.20], [
+      dnl linux-util's libuuid has uuid_generate_time_safe() since v2.20 (2011)
+      dnl and provides <uuid.h>.
+      have_uuid=yes
+      AC_DEFINE([HAVE_UUID_H], [1])
+      AC_DEFINE([HAVE_UUID_GENERATE_TIME_SAFE], [1])
+    ], [
+      LIBUUID_LIBS="-luuid"
+      LIBUUID_CFLAGS=
+      have_uuid=no
+      AC_CHECK_HEADERS([uuid/uuid.h], [
+        WITH_SAVE_ENV(
+          [AC_CHECK_LIB([uuid], [uuid_generate_time], [have_uuid=yes])
+        ])
+        WITH_SAVE_ENV([
+          AC_CHECK_LIB([uuid], [uuid_generate_time_safe], [
+            have_uuid=yes
+            AC_DEFINE([HAVE_UUID_GENERATE_TIME_SAFE], [1])
+          ])
+        ])
+      ])
+    ]
+  )
 ])
-
-# check for libuuid from util-linux
-save_LIBS=$LIBS
-AC_CHECK_LIB([uuid], [uuid_generate_time])
-LIBS=$save_LIBS
-
-# AIX provides support for RFC4122 (uuid) in libc.a starting with AIX 6.1 (anno 2007)
-# FreeBSD and OpenBSD provides support in libc as well.
-# Little-endian FreeBSD, OpenBSD and NetBSD needs encoding into an octet
-# stream in big-endian byte-order
-AC_CHECK_FUNCS([uuid_create uuid_enc_be])
 
 # 'Real Time' functions on Solaris
 # posix4 on Solaris 2.6
@@ -4223,7 +4243,7 @@ PKG_CHECK_MODULES([LIBCRYPT], [libxcrypt >= 3.1.1], [
 
 WITH_SAVE_ENV([
   CPPFLAGS="$LIBCRYPT_CFLAGS $CFLAGS"
-  LDFLAGS="$LIBCRYPT_LIBS $LDFLAGS"
+  LIBS="$LIBCRYPT_LIBS $LIBS"
   AC_CACHE_CHECK([for crypt or crypt_r], [ac_cv_crypt_crypt], [
     AC_LINK_IFELSE([AC_LANG_PROGRAM([
         #ifdef HAVE_CRYPT_H
@@ -5875,27 +5895,24 @@ AS_VAR_IF([ac_cv_func_getrandom], [yes], [
 
 # checks for POSIX shared memory, used by Modules/_multiprocessing/posixshmem.c
 # shm_* may only be available if linking against librt
-save_LIBS="$LIBS"
-save_includes_default="$ac_includes_default"
-AC_SEARCH_LIBS(shm_open, rt)
-if test "$ac_cv_search_shm_open" = "-lrt"; then
-    AC_DEFINE(SHM_NEEDS_LIBRT, 1,
-              [Define to 1 if you must link with -lrt for shm_open().])
-fi
-AC_CHECK_HEADERS(sys/mman.h)
-# temporarily override ac_includes_default for AC_CHECK_FUNCS below
-ac_includes_default="\
-${ac_includes_default}
-#ifndef __cplusplus
-#  ifdef HAVE_SYS_MMAN_H
-#    include <sys/mman.h>
-#  endif
-#endif
-"
-AC_CHECK_FUNCS([shm_open shm_unlink])
-# we don't want to link with librt always, restore LIBS
-LIBS="$save_LIBS"
-ac_includes_default="$save_includes_default"
+POSIXSHMEM_CFLAGS='-I$(srcdir)/Modules/_multiprocessing'
+WITH_SAVE_ENV([
+  AC_SEARCH_LIBS([shm_open], [rt])
+  AS_VAR_IF([ac_cv_search_shm_open], [-lrt], [POSIXSHMEM_LIBS="-lrt"])
+
+  dnl Temporarily override ac_includes_default for AC_CHECK_FUNCS below.
+  _SAVE_VAR([ac_includes_default])
+  ac_includes_default="\
+  ${ac_includes_default}
+  #ifndef __cplusplus
+  #  ifdef HAVE_SYS_MMAN_H
+  #    include <sys/mman.h>
+  #  endif
+  #endif
+  "
+  AC_CHECK_FUNCS([shm_open shm_unlink], [have_posix_shmem=yes], [have_posix_shmem=no])
+  _RESTORE_VAR([ac_includes_default])
+])
 
 # Check for usable OpenSSL
 AX_CHECK_OPENSSL([have_openssl=yes],[have_openssl=no])
@@ -6251,6 +6268,9 @@ PY_STDLIB_MOD([fcntl],
   [], [$FCNTL_LIBS])
 PY_STDLIB_MOD([mmap],
   [], [test "$ac_cv_header_sys_mman_h" = "yes" -a "$ac_cv_header_sys_stat_h" = "yes"])
+PY_STDLIB_MOD([_posixshmem],
+  [], [test "$have_posix_shmem" = "yes"],
+  [$POSIXSHMEM_CFLAGS], [$POSIXSHMEM_LIBS])
 
 dnl platform specific extensions
 PY_STDLIB_MOD([grp], [], [test "$ac_cv_func_getgrgid" = yes -o "$ac_cv_func_getgrgid_r" = yes])
@@ -6299,6 +6319,9 @@ PY_STDLIB_MOD([_sqlite3],
   [test "$have_sqlite3" = "yes"],
   [test "$have_supported_sqlite3" = "yes"],
   [$LIBSQLITE3_CFLAGS], [$LIBSQLITE3_LIBS])
+PY_STDLIB_MOD([_uuid],
+  [], [test "$have_uuid" = "yes"],
+  [$LIBUUID_CFLAGS], [$LIBUUID_LIBS])
 
 dnl compression libs
 PY_STDLIB_MOD([zlib], [], [test "$have_zlib" = yes],

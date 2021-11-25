@@ -84,6 +84,9 @@ CYGWIN = (HOST_PLATFORM == 'cygwin')
 MACOS = (HOST_PLATFORM == 'darwin')
 AIX = (HOST_PLATFORM.startswith('aix'))
 VXWORKS = ('vxworks' in HOST_PLATFORM)
+CC = os.environ.get("CC")
+if not CC:
+    CC = sysconfig.get_config_var("CC")
 
 
 SUMMARY = """
@@ -556,6 +559,9 @@ class PyBuildExt(build_ext):
 
     def build_extensions(self):
         self.set_srcdir()
+        self.set_compiler_executables()
+        self.configure_compiler()
+        self.init_inc_lib_dirs()
 
         # Detect which modules should be compiled
         self.detect_modules()
@@ -565,7 +571,6 @@ class PyBuildExt(build_ext):
 
         self.update_sources_depends()
         mods_built, mods_disabled = self.handle_configured_extensions()
-        self.set_compiler_executables()
 
         if LIST_MODULE_NAMES:
             for ext in self.extensions:
@@ -751,12 +756,11 @@ class PyBuildExt(build_ext):
     def add_multiarch_paths(self):
         # Debian/Ubuntu multiarch support.
         # https://wiki.ubuntu.com/MultiarchSpec
-        cc = sysconfig.get_config_var('CC')
         tmpfile = os.path.join(self.build_temp, 'multiarch')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
         ret = run_command(
-            '%s -print-multiarch > %s 2> /dev/null' % (cc, tmpfile))
+            '%s -print-multiarch > %s 2> /dev/null' % (CC, tmpfile))
         multiarch_path_component = ''
         try:
             if ret == 0:
@@ -818,11 +822,10 @@ class PyBuildExt(build_ext):
                 d = os.path.normpath(d)
                 add_dir_to_list(self.compiler.library_dirs, d)
 
-        cc = sysconfig.get_config_var('CC')
         tmpfile = os.path.join(self.build_temp, 'wrccpaths')
         os.makedirs(self.build_temp, exist_ok=True)
         try:
-            ret = run_command('%s --print-search-dirs >%s' % (cc, tmpfile))
+            ret = run_command('%s --print-search-dirs >%s' % (CC, tmpfile))
             if ret:
                 return
             with open(tmpfile) as fp:
@@ -840,11 +843,10 @@ class PyBuildExt(build_ext):
                 pass
 
     def add_cross_compiling_paths(self):
-        cc = sysconfig.get_config_var('CC')
         tmpfile = os.path.join(self.build_temp, 'ccpaths')
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        ret = run_command('%s -E -v - </dev/null 2>%s 1>/dev/null' % (cc, tmpfile))
+        ret = run_command('%s -E -v - </dev/null 2>%s 1>/dev/null' % (CC, tmpfile))
         is_gcc = False
         is_clang = False
         in_incdirs = False
@@ -1397,41 +1399,15 @@ class PyBuildExt(build_ext):
         self.add(Extension('_multiprocessing', multiprocessing_srcs,
                            include_dirs=["Modules/_multiprocessing"]))
 
-        if (not MS_WINDOWS and
-           sysconfig.get_config_var('HAVE_SHM_OPEN') and
-           sysconfig.get_config_var('HAVE_SHM_UNLINK')):
-            posixshmem_srcs = ['_multiprocessing/posixshmem.c']
-            libs = []
-            if sysconfig.get_config_var('SHM_NEEDS_LIBRT'):
-                # need to link with librt to get shm_open()
-                libs.append('rt')
-            self.add(Extension('_posixshmem', posixshmem_srcs,
-                               define_macros={},
-                               libraries=libs,
-                               include_dirs=["Modules/_multiprocessing"]))
-        else:
-            self.missing.append('_posixshmem')
+        self.addext(Extension('_posixshmem', ['_multiprocessing/posixshmem.c']))
 
     def detect_uuid(self):
         # Build the _uuid module if possible
-        uuid_h = sysconfig.get_config_var("HAVE_UUID_H")
-        uuid_uuid_h = sysconfig.get_config_var("HAVE_UUID_UUID_H")
-        if uuid_h or uuid_uuid_h:
-            if sysconfig.get_config_var("HAVE_LIBUUID"):
-                uuid_libs = ["uuid"]
-            else:
-                uuid_libs = []
-            self.add(Extension('_uuid', ['_uuidmodule.c'],
-                               libraries=uuid_libs))
-        else:
-            self.missing.append('_uuid')
+        self.addext(Extension('_uuid', ['_uuidmodule.c']))
 
     def detect_modules(self):
         # remove dummy extension
         self.extensions = []
-
-        self.configure_compiler()
-        self.init_inc_lib_dirs()
 
         # Some C extensions are built by entries in Modules/Setup.bootstrap.
         # These are extensions are required to bootstrap the interpreter or

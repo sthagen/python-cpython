@@ -598,10 +598,10 @@ def regen_makefile(modules):
         pyfile = relpath_for_posix_display(src.pyfile, ROOT_DIR)
         pyfiles.append(f'\t\t{pyfile} \\')
 
-        freeze = (f'Programs/_freeze_module {src.frozenid} '
+        freeze = (f'$(FREEZE_MODULE) {src.frozenid} '
                   f'$(srcdir)/{pyfile} {header}')
         rules.extend([
-            f'{header}: Programs/_freeze_module {pyfile}',
+            f'{header}: $(FREEZE_MODULE) {pyfile}',
             f'\t{freeze}',
             '',
         ])
@@ -726,5 +726,5 @@ def main():
 if __name__ == '__main__':
     argv = sys.argv[1:]
     if argv:
-        sys.exit('ERROR: got unexpected args {argv}')
+        sys.exit(f'ERROR: got unexpected args {argv}')
     main()
