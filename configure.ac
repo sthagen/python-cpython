@@ -1093,7 +1093,7 @@ AC_ARG_WITH([suffix],
   AS_CASE([$ac_sys_system/$ac_sys_emscripten_target],
     [Emscripten/browser], [EXEEXT=.html],
     [Emscripten/node], [EXEEXT=.js],
-    [wasi/*], [EXEEXT=.wasm],
+    [WASI/*], [EXEEXT=.wasm],
     [EXEEXT=]
   )
 ])
@@ -1231,6 +1231,23 @@ then
 fi
 AC_MSG_RESULT($enable_shared)
 
+# --with-static-libpython
+STATIC_LIBPYTHON=1
+AC_MSG_CHECKING(for --with-static-libpython)
+AC_ARG_WITH(static-libpython,
+  AS_HELP_STRING([--without-static-libpython],
+                 [do not build libpythonMAJOR.MINOR.a and do not install python.o (default is yes)]),
+[
+if test "$withval" = no
+then
+  AC_MSG_RESULT(no);
+  STATIC_LIBPYTHON=0
+else
+  AC_MSG_RESULT(yes);
+fi],
+[AC_MSG_RESULT(yes)])
+AC_SUBST(STATIC_LIBPYTHON)
+
 AC_MSG_CHECKING(for --enable-profiling)
 AC_ARG_ENABLE(profiling,
               AS_HELP_STRING([--enable-profiling], [enable C-level code profiling with gprof (default is no)]))
@@ -1336,6 +1353,34 @@ fi
 
 AC_MSG_RESULT($LDLIBRARY)
 
+# LIBRARY_DEPS, LINK_PYTHON_OBJS and LINK_PYTHON_DEPS variable
+AS_CASE([$ac_sys_system/$ac_sys_emscripten_target],
+  [Emscripten/browser], [LIBRARY_DEPS='$(PY3LIBRARY) $(WASM_STDLIB)'],
+  [LIBRARY_DEPS='$(PY3LIBRARY) $(EXPORTSYMS)']
+)
+LINK_PYTHON_DEPS='$(LIBRARY_DEPS)'
+if test "$PY_ENABLE_SHARED" = 1 || test "$enable_framework" ; then
+    LIBRARY_DEPS="\$(LDLIBRARY) $LIBRARY_DEPS"
+    if test "$STATIC_LIBPYTHON" = 1; then
+        LIBRARY_DEPS="\$(LIBRARY) $LIBRARY_DEPS"
+    fi
+    # Link Python program to the shared library
+    LINK_PYTHON_OBJS='$(BLDLIBRARY)'
+else
+    if test "$STATIC_LIBPYTHON" = 0; then
+        # Build Python needs object files but don't need to build
+        # Python static library
+        LINK_PYTHON_DEPS="$LIBRARY_DEPS \$(LIBRARY_OBJS)"
+    fi
+    LIBRARY_DEPS="\$(LIBRARY) $LIBRARY_DEPS"
+    # Link Python program to object files
+    LINK_PYTHON_OBJS='$(LIBRARY_OBJS)'
+fi
+AC_SUBST(LIBRARY_DEPS)
+AC_SUBST(LINK_PYTHON_DEPS)
+AC_SUBST(LINK_PYTHON_OBJS)
+
+# ar program
 AC_SUBST(AR)
 AC_CHECK_TOOLS(AR, ar aal, ar)
 
@@ -1797,14 +1842,19 @@ fi
 # WASM flags
 AS_CASE([$ac_sys_system/$ac_sys_emscripten_target],
   [Emscripten/browser], [
-    LDFLAGS_NODIST="$(LDFLAGS_NODIST) -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 --preload-file \$(WASM_ASSETS_DIR)"
+    LDFLAGS_NODIST="$LDFLAGS_NODIST -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 --preload-file \$(WASM_ASSETS_DIR)"
     WASM_ASSETS_DIR=".\$(prefix)"
     WASM_STDLIB="\$(WASM_ASSETS_DIR)/local/lib/python\$(VERSION)/os.py"
   ],
   [Emscripten/node], [
-    LDFLAGS_NODIST="$(LDFLAGS_NODIST) -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -s NODERAWFS=1 -s EXIT_RUNTIME=1 -s USE_PTHREADS -s PROXY_TO_PTHREAD"
-    CFLAGS_NODIST="$(CFLAGS_NODIST) -pthread"
+    LDFLAGS_NODIST="$LDFLAGS_NODIST -s ASSERTIONS=1 -s ALLOW_MEMORY_GROWTH=1 -s NODERAWFS=1 -s EXIT_RUNTIME=1 -s USE_PTHREADS -s PROXY_TO_PTHREAD"
+    CFLAGS_NODIST="$CFLAGS_NODIST -pthread"
   ],
+  [WASI], [
+    AC_DEFINE([_WASI_EMULATED_SIGNAL], [1], [Define to 1 if you want to emulate signals on WASI])
+    LIBS="$LIBS -lwasi-emulated-signal"
+    echo "#define _WASI_EMULATED_SIGNAL 1" >> confdefs.h
+  ]
 )
 
 AC_SUBST(BASECFLAGS)
@@ -2306,7 +2356,7 @@ AC_CHECK_HEADERS([ \
   alloca.h asm/types.h bluetooth.h conio.h crypt.h direct.h dlfcn.h endian.h errno.h fcntl.h grp.h \
   ieeefp.h io.h langinfo.h libintl.h libutil.h linux/memfd.h linux/random.h linux/soundcard.h \
   linux/tipc.h linux/wait.h netinet/in.h netpacket/packet.h poll.h process.h pthread.h pty.h \
-  sched.h shadow.h signal.h spawn.h stropts.h sys/audioio.h sys/bsdtty.h sys/devpoll.h \
+  sched.h setjmp.h shadow.h signal.h spawn.h stropts.h sys/audioio.h sys/bsdtty.h sys/devpoll.h \
   sys/endian.h sys/epoll.h sys/event.h sys/eventfd.h sys/file.h sys/ioctl.h sys/kern_control.h \
   sys/loadavg.h sys/lock.h sys/memfd.h sys/mkdev.h sys/mman.h sys/modem.h sys/param.h sys/poll.h \
   sys/random.h sys/resource.h sys/select.h sys/sendfile.h sys/socket.h sys/soundcard.h sys/stat.h \
@@ -4062,7 +4112,7 @@ fi
 
 # checks for library functions
 AC_CHECK_FUNCS([ \
-  accept4 alarm bind_textdomain_codeset chown clock close_range confstr \
+  accept4 alarm bind_textdomain_codeset chmod chown clock close_range confstr \
   copy_file_range ctermid dup3 execv explicit_bzero explicit_memset \
   faccessat fchmod fchmodat fchown fchownat fdopendir fdwalk fexecve \
   fork fork1 fpathconf fstatat ftime ftruncate futimens futimes futimesat \
@@ -4084,7 +4134,7 @@ AC_CHECK_FUNCS([ \
   sigfillset siginterrupt sigpending sigrelse sigtimedwait sigwait \
   sigwaitinfo snprintf splice strftime strlcpy strsignal symlinkat sync \
   sysconf system tcgetpgrp tcsetpgrp tempnam timegm times tmpfile \
-  tmpnam tmpnam_r truncate ttyname uname unlinkat utimensat utimes vfork \
+  tmpnam tmpnam_r truncate ttyname umask uname unlinkat utimensat utimes vfork \
   wait wait3 wait4 waitid waitpid wcscoll wcsftime wcsxfrm wmemcmp writev \
 ])
 
@@ -6268,39 +6318,6 @@ else
 fi],
 [AC_MSG_RESULT(no)])
 
-# --with-static-libpython
-STATIC_LIBPYTHON=1
-AC_MSG_CHECKING(for --with-static-libpython)
-AC_ARG_WITH(static-libpython,
-  AS_HELP_STRING([--without-static-libpython],
-                 [do not build libpythonMAJOR.MINOR.a and do not install python.o (default is yes)]),
-[
-if test "$withval" = no
-then
-  AC_MSG_RESULT(no);
-  STATIC_LIBPYTHON=0
-else
-  AC_MSG_RESULT(yes);
-fi],
-[AC_MSG_RESULT(yes)])
-LIBRARY_DEPS='$(PY3LIBRARY) $(EXPORTSYMS)'
-if test "$PY_ENABLE_SHARED" = 1 || test "$enable_framework" ; then
-    LIBRARY_DEPS="\$(LDLIBRARY) $LIBRARY_DEPS"
-    if test "$STATIC_LIBPYTHON" = 1; then
-        LIBRARY_DEPS="\$(LIBRARY) $LIBRARY_DEPS"
-    fi
-else
-    LIBRARY_DEPS="\$(LIBRARY) $LIBRARY_DEPS"
-fi
-
-dnl browser needs a WASM assets stdlib bundle
-AS_CASE([$ac_sys_system/$ac_sys_emscripten_target],
-  [Emscripten/browser], [LIBRARY_DEPS="$LIBRARY_DEPS \$(WASM_STDLIB)"],
-)
-
-AC_SUBST(STATIC_LIBPYTHON)
-AC_SUBST(LIBRARY_DEPS)
-
 # Check whether to disable test modules. Once set, setup.py will not build
 # test extension modules and "make install" will not install test suites.
 AC_MSG_CHECKING(for --disable-test-modules)
@@ -6322,14 +6339,14 @@ AC_SUBST(TEST_MODULES)
 dnl Modules that are not available on some platforms
 dnl AIX has shadow passwords, but access is not via getspent()
 dnl VxWorks does not provide crypt() function
-AS_CASE([$ac_sys_system],
-  [AIX], [py_stdlib_not_available="_scproxy spwd"],
-  [VxWorks*], [py_stdlib_not_available="_scproxy _crypt termios grp"],
-  [Darwin], [py_stdlib_not_available="ossaudiodev spwd"],
-  [CYGWIN*], [py_stdlib_not_available="_scproxy nis"],
-  [QNX*], [py_stdlib_not_available="_scproxy nis"],
-  [FreeBSD*], [py_stdlib_not_available="_scproxy spwd"],
-  [Emscripten], [
+AS_CASE([$ac_sys_system/$ac_sys_emscripten_target],
+  [AIX/*], [py_stdlib_not_available="_scproxy spwd"],
+  [VxWorks*/*], [py_stdlib_not_available="_scproxy _crypt termios grp"],
+  [Darwin/*], [py_stdlib_not_available="ossaudiodev spwd"],
+  [CYGWIN*/*], [py_stdlib_not_available="_scproxy nis"],
+  [QNX*/*], [py_stdlib_not_available="_scproxy nis"],
+  [FreeBSD*/*], [py_stdlib_not_available="_scproxy spwd"],
+  [Emscripten/browser], [
     py_stdlib_not_available="m4_normalize([
       _ctypes
       _curses
@@ -6351,6 +6368,23 @@ AS_CASE([$ac_sys_system],
       spwd
       syslog
       termios
+    ])"
+  ],
+  dnl Some modules like _posixsubprocess do not work. We build them anyway
+  dnl so imports in tests do not fail.
+  [Emscripten/node], [
+    py_stdlib_not_available="m4_normalize([
+      _ctypes
+      _curses
+      _curses_panel
+      _dbm
+      _gdbm
+      _scproxy
+      _tkinter
+      nis
+      ossaudiodev
+      spwd
+      syslog
     ])"
   ],
   [py_stdlib_not_available="_scproxy"]
