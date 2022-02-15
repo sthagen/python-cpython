@@ -174,11 +174,13 @@ print_spec_stats(FILE *out, OpcodeStats *stats)
 {
     /* Mark some opcodes as specializable for stats,
      * even though we don't specialize them yet. */
-    fprintf(out, "    opcode[%d].specializable : 1\n", FOR_ITER);
-    fprintf(out, "    opcode[%d].specializable : 1\n", UNPACK_SEQUENCE);
+    fprintf(out, "opcode[%d].specializable : 1\n", FOR_ITER);
+    fprintf(out, "opcode[%d].specializable : 1\n", PRECALL_FUNCTION);
+    fprintf(out, "opcode[%d].specializable : 1\n", PRECALL_METHOD);
+    fprintf(out, "opcode[%d].specializable : 1\n", UNPACK_SEQUENCE);
     for (int i = 0; i < 256; i++) {
         if (adaptive_opcodes[i]) {
-            fprintf(out, "    opcode[%d].specializable : 1\n", i);
+            fprintf(out, "opcode[%d].specializable : 1\n", i);
         }
         PRINT_STAT(i, specialization.success);
         PRINT_STAT(i, specialization.failure);
@@ -192,6 +194,12 @@ print_spec_stats(FILE *out, OpcodeStats *stats)
             if (val) {
                 fprintf(out, "    opcode[%d].specialization.failure_kinds[%d] : %"
                     PRIu64 "\n", i, j, val);
+            }
+        }
+        for(int j = 0; j < 256; j++) {
+            if (stats[i].pair_count[j]) {
+                fprintf(out, "opcode[%d].pair_count[%d] : %" PRIu64 "\n",
+                        i, j, stats[i].pair_count[j]);
             }
         }
     }
@@ -405,6 +413,9 @@ optimize(SpecializedCacheOrInstruction *quickened, int len)
                 case JUMP_ABSOLUTE:
                     instructions[i] = _Py_MAKECODEUNIT(JUMP_ABSOLUTE_QUICK, oparg);
                     break;
+                case RESUME:
+                    instructions[i] = _Py_MAKECODEUNIT(RESUME_QUICK, oparg);
+                    break;
                 case LOAD_FAST:
                     switch(previous_opcode) {
                         case LOAD_FAST:
@@ -556,7 +567,7 @@ initial_counter_value(void) {
 #define SPEC_FAIL_CALL_BAD_CALL_FLAGS 17
 #define SPEC_FAIL_CALL_CLASS 18
 #define SPEC_FAIL_CALL_PYTHON_CLASS 19
-#define SPEC_FAIL_CALL_C_METHOD_CALL 20
+#define SPEC_FAIL_CALL_METHOD_DESCRIPTOR 20
 #define SPEC_FAIL_CALL_BOUND_METHOD 21
 #define SPEC_FAIL_CALL_STR 22
 #define SPEC_FAIL_CALL_CLASS_NO_VECTORCALL 23
@@ -564,6 +575,7 @@ initial_counter_value(void) {
 #define SPEC_FAIL_CALL_KWNAMES 25
 #define SPEC_FAIL_CALL_METHOD_WRAPPER 26
 #define SPEC_FAIL_CALL_OPERATOR_WRAPPER 27
+#define SPEC_FAIL_CALL_PYFUNCTION 28
 
 /* COMPARE_OP */
 #define SPEC_FAIL_COMPARE_OP_DIFFERENT_TYPES 12
@@ -596,8 +608,26 @@ initial_counter_value(void) {
 #define SPEC_FAIL_FOR_ITER_ENUMERATE 23
 
 /* UNPACK_SEQUENCE */
-#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE 10
-#define SPEC_FAIL_UNPACK_SEQUENCE_LIST 11
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_0 9
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_1 10
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_2 11
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_3 12
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_4 13
+#define SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_N 14
+
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_0 15
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_1 16
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_2 17
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_3 18
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_4 19
+#define SPEC_FAIL_UNPACK_SEQUENCE_LIST_N 20
+
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_0 21
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_1 22
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_2 23
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_3 24
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_4 25
+#define SPEC_FAIL_UNPACK_SEQUENCE_OTHER_N 26
 
 
 static int
@@ -1651,7 +1681,13 @@ specialize_c_call(PyObject *callable, _Py_CODEUNIT *instr, int nargs,
 static int
 call_fail_kind(PyObject *callable)
 {
-    if (PyInstanceMethod_Check(callable)) {
+    if (PyCFunction_CheckExact(callable)) {
+        return SPEC_FAIL_CALL_PYCFUNCTION;
+    }
+    else if (PyFunction_Check(callable)) {
+        return SPEC_FAIL_CALL_PYFUNCTION;
+    }
+    else if (PyInstanceMethod_Check(callable)) {
         return SPEC_FAIL_CALL_INSTANCE_METHOD;
     }
     else if (PyMethod_Check(callable)) {
@@ -1662,7 +1698,15 @@ call_fail_kind(PyObject *callable)
         return SPEC_FAIL_CALL_CMETHOD;
     }
     else if (PyType_Check(callable)) {
-        return  SPEC_FAIL_CALL_CLASS;
+        if (((PyTypeObject *)callable)->tp_new == PyBaseObject_Type.tp_new) {
+            return SPEC_FAIL_CALL_PYTHON_CLASS;
+        }
+        else {
+            return SPEC_FAIL_CALL_CLASS;
+        }
+    }
+    else if (Py_IS_TYPE(callable, &PyMethodDescr_Type)) {
+        return SPEC_FAIL_CALL_METHOD_DESCRIPTOR;
     }
     else if (Py_TYPE(callable) == &PyWrapperDescr_Type) {
         return SPEC_FAIL_CALL_OPERATOR_WRAPPER;
@@ -1905,6 +1949,8 @@ success:
     adaptive->counter = initial_counter_value();
 }
 
+#ifdef Py_STATS
+
 int
  _PySpecialization_ClassifyIterator(PyObject *iter)
 {
@@ -1917,7 +1963,7 @@ int
     if (PyAsyncGen_CheckExact(iter)) {
         return SPEC_FAIL_FOR_ITER_ASYNC_GENERATOR;
     }
-    PyTypeObject *t = _Py_TYPE(iter);
+    PyTypeObject *t = Py_TYPE(iter);
     if (t == &PyListIter_Type) {
         return SPEC_FAIL_FOR_ITER_LIST;
     }
@@ -1956,13 +2002,25 @@ int
 }
 
 int
-_PySpecialization_ClassifySequence(PyObject *seq)
+_PySpecialization_ClassifySequence(PyObject *seq, int n)
 {
+    assert(n >= 0);
+    if (n > 4) {
+        n = 5;
+    }
     if (PyTuple_CheckExact(seq)) {
-        return SPEC_FAIL_UNPACK_SEQUENCE_TUPLE;
+        return SPEC_FAIL_UNPACK_SEQUENCE_TUPLE_0 + n;
     }
     if (PyList_CheckExact(seq)) {
-        return SPEC_FAIL_UNPACK_SEQUENCE_LIST;
+        return SPEC_FAIL_UNPACK_SEQUENCE_LIST_0 + n;
     }
-    return SPEC_FAIL_OTHER;
+    return SPEC_FAIL_UNPACK_SEQUENCE_OTHER_0 + n;
 }
+
+int
+_PySpecialization_ClassifyCallable(PyObject *callable)
+{
+    return call_fail_kind(callable);
+}
+
+#endif

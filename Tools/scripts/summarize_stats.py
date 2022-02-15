@@ -6,6 +6,8 @@ import collections
 import os.path
 import opcode
 from datetime import date
+import itertools
+import argparse
 
 if os.name == "nt":
     DEFAULT_DIR = "c:\\temp\\py_stats\\"
@@ -55,7 +57,7 @@ def print_specialization_stats(name, family_stats, defines):
             label = label[0].upper() + label[1:]
             val = family_stats.get(key, 0)
             rows.append((label, val, f"{100*val/total_attempts:0.1f}%"))
-        emit_table(("", "Count", "Ratio"), rows)
+        emit_table(("", "Count:", "Ratio:"), rows)
         total_failures = family_stats.get("specialization.failure", 0)
         failure_kinds = [ 0 ] * 30
         for key in family_stats:
@@ -71,7 +73,7 @@ def print_specialization_stats(name, family_stats, defines):
             if not value:
                 continue
             rows.append((kind_to_text(index, defines, name), value, f"{100*value/total_failures:0.1f}%"))
-        emit_table(("Failure kind", "Count", "Ratio"), rows)
+        emit_table(("Failure kind", "Count:", "Ratio:"), rows)
 
 def gather_stats():
     stats = collections.Counter()
@@ -80,7 +82,7 @@ def gather_stats():
             for line in fd:
                 key, value = line.split(":")
                 key = key.strip()
-                value = int(value.strip())
+                value = int(value)
                 stats[key] += value
     return stats
 
@@ -114,6 +116,8 @@ def kind_to_text(kind, defines, opname):
         opname = "ATTR"
     if opname.endswith("SUBSCR"):
         opname = "SUBSCR"
+    if opname.startswith("PRECALL"):
+        opname = "CALL"
     for name in defines[kind]:
         if name.startswith(opname):
             return pretty(name[len(opname)+1:])
@@ -174,8 +178,17 @@ class Section:
 
 def emit_table(header, rows):
     width = len(header)
-    print("|", " | ".join(header), "|")
-    print("|", " | ".join(["---"]*width), "|")
+    header_line = "|"
+    under_line = "|"
+    for item in header:
+        under = "---"
+        if item.endswith(":"):
+            item = item[:-1]
+            under += ":"
+        header_line += item + " | "
+        under_line += under + "|"
+    print(header_line)
+    print(under_line)
     for row in rows:
         if width is not None and len(row) != width:
             raise ValueError("Wrong number of elements in row '" + str(rows) + "'")
@@ -204,7 +217,7 @@ def emit_execution_counts(opcode_stats, total):
             rows.append((name, count, f"{100*count/total:0.1f}%",
                         f"{100*cumulative/total:0.1f}%", miss))
         emit_table(
-            ("Name", "Count", "Self", "Cumulative", "Miss ratio"),
+            ("Name", "Count:", "Self:", "Cumulative:", "Miss ratio:"),
             rows
         )
 
@@ -221,7 +234,7 @@ def emit_specialization_stats(opcode_stats):
 def emit_specialization_overview(opcode_stats, total):
     basic, not_specialized, specialized = categorized_counts(opcode_stats)
     with Section("Specialization effectiveness"):
-        emit_table(("Instructions", "Count", "Ratio"), (
+        emit_table(("Instructions", "Count:", "Ratio:"), (
             ("Basic", basic, f"{basic*100/total:0.1f}%"),
             ("Not specialized", not_specialized, f"{not_specialized*100/total:0.1f}%"),
             ("Specialized", specialized, f"{specialized*100/total:0.1f}%"),
@@ -240,7 +253,7 @@ def emit_call_stats(stats):
         for key, value in stats.items():
             if key.startswith("Frame"):
                 rows.append((key, value, f"{100*value/total:0.1f}%"))
-        emit_table(("", "Count", "Ratio"), rows)
+        emit_table(("", "Count:", "Ratio:"), rows)
 
 def emit_object_stats(stats):
     with Section("Object stats", summary="allocations, frees and dict materializatons"):
@@ -255,16 +268,44 @@ def emit_object_stats(stats):
                 label = key[6:].strip()
                 label = label[0].upper() + label[1:]
                 rows.append((label, value, materialize))
-        emit_table(("",  "Count", "Ratio"), rows)
+        emit_table(("",  "Count:", "Ratio:"), rows)
+
+def get_total(opcode_stats):
+    total = 0
+    for opcode_stat in opcode_stats:
+        if "execution_count" in opcode_stat:
+            total += opcode_stat['execution_count']
+    return total
+
+def emit_pair_counts(opcode_stats, total):
+    with Section("Pair counts", summary="Pair counts for top 100 pairs"):
+        pair_counts = []
+        for i, opcode_stat in enumerate(opcode_stats):
+            if i == 0:
+                continue
+            for key, value in opcode_stat.items():
+                if key.startswith("pair_count"):
+                    x, _, _ = key[11:].partition("]")
+                    if value:
+                        pair_counts.append((value, (i, int(x))))
+        pair_counts.sort(reverse=True)
+        cumulative = 0
+        rows = []
+        for (count, pair) in itertools.islice(pair_counts, 100):
+            i, j = pair
+            cumulative += count
+            rows.append((opname[i] + " " + opname[j], count, f"{100*count/total:0.1f}%",
+                        f"{100*cumulative/total:0.1f}%"))
+        emit_table(("Pair", "Count:", "Self:", "Cumulative:"),
+            rows
+        )
 
 def main():
     stats = gather_stats()
     opcode_stats = extract_opcode_stats(stats)
-    total = 0
-    for i, opcode_stat in enumerate(opcode_stats):
-        if "execution_count" in opcode_stat:
-            total += opcode_stat['execution_count']
+    total = get_total(opcode_stats)
     emit_execution_counts(opcode_stats, total)
+    emit_pair_counts(opcode_stats, total)
     emit_specialization_stats(opcode_stats)
     emit_specialization_overview(opcode_stats, total)
     emit_call_stats(stats)
