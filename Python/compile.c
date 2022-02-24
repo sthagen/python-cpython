@@ -1800,7 +1800,7 @@ compiler_call_exit_with_nones(struct compiler *c) {
     ADDOP_LOAD_CONST(c, Py_None);
     ADDOP_LOAD_CONST(c, Py_None);
     ADDOP_I(c, PRECALL, 2);
-    ADDOP_I(c, CALL, 0);
+    ADDOP_I(c, CALL, 2);
     return 1;
 }
 
@@ -2522,7 +2522,6 @@ static int
 compiler_class(struct compiler *c, stmt_ty s)
 {
     PyCodeObject *co;
-    PyObject *str;
     int i, firstlineno;
     asdl_expr_seq *decos = s->v.ClassDef.decorator_list;
 
@@ -2557,30 +2556,21 @@ compiler_class(struct compiler *c, stmt_ty s)
         Py_INCREF(s->v.ClassDef.name);
         Py_XSETREF(c->u->u_private, s->v.ClassDef.name);
         /* load (global) __name__ ... */
-        str = PyUnicode_InternFromString("__name__");
-        if (!str || !compiler_nameop(c, str, Load)) {
-            Py_XDECREF(str);
+        if (!compiler_nameop(c, &_Py_ID(__name__), Load)) {
             compiler_exit_scope(c);
             return 0;
         }
-        Py_DECREF(str);
         /* ... and store it as __module__ */
-        str = PyUnicode_InternFromString("__module__");
-        if (!str || !compiler_nameop(c, str, Store)) {
-            Py_XDECREF(str);
+        if (!compiler_nameop(c, &_Py_ID(__module__), Store)) {
             compiler_exit_scope(c);
             return 0;
         }
-        Py_DECREF(str);
         assert(c->u->u_qualname);
         ADDOP_LOAD_CONST(c, c->u->u_qualname);
-        str = PyUnicode_InternFromString("__qualname__");
-        if (!str || !compiler_nameop(c, str, Store)) {
-            Py_XDECREF(str);
+        if (!compiler_nameop(c, &_Py_ID(__qualname__), Store)) {
             compiler_exit_scope(c);
             return 0;
         }
-        Py_DECREF(str);
         /* compile the body proper */
         if (!compiler_body(c, s->v.ClassDef.body)) {
             compiler_exit_scope(c);
@@ -2591,13 +2581,7 @@ compiler_class(struct compiler *c, stmt_ty s)
         /* Return __classcell__ if it is referenced, otherwise return None */
         if (c->u->u_ste->ste_needs_class_closure) {
             /* Store __classcell__ into class namespace & return it */
-            str = PyUnicode_InternFromString("__class__");
-            if (str == NULL) {
-                compiler_exit_scope(c);
-                return 0;
-            }
-            i = compiler_lookup_arg(c->u->u_cellvars, str);
-            Py_DECREF(str);
+            i = compiler_lookup_arg(c->u->u_cellvars, &_Py_ID(__class__));
             if (i < 0) {
                 compiler_exit_scope(c);
                 return 0;
@@ -2606,13 +2590,10 @@ compiler_class(struct compiler *c, stmt_ty s)
 
             ADDOP_I(c, LOAD_CLOSURE, i);
             ADDOP_I(c, COPY, 1);
-            str = PyUnicode_InternFromString("__classcell__");
-            if (!str || !compiler_nameop(c, str, Store)) {
-                Py_XDECREF(str);
+            if (!compiler_nameop(c, &_Py_ID(__classcell__), Store)) {
                 compiler_exit_scope(c);
                 return 0;
             }
-            Py_DECREF(str);
         }
         else {
             /* No methods referenced __class__, so just return None */
@@ -4679,16 +4660,12 @@ maybe_optimize_method_call(struct compiler *c, expr_ty e)
 
     if (kwdsl) {
         VISIT_SEQ(c, keyword, kwds);
-        ADDOP_I(c, PRECALL, argsl + kwdsl);
         if (!compiler_call_simple_kw_helper(c, kwds, kwdsl)) {
             return 0;
         };
-        ADDOP_I(c, CALL, kwdsl);
     }
-    else {
-        ADDOP_I(c, PRECALL, argsl);
-        ADDOP_I(c, CALL, 0);
-    }
+    ADDOP_I(c, PRECALL, argsl + kwdsl);
+    ADDOP_I(c, CALL, argsl + kwdsl);
     c->u->u_lineno = old_lineno;
     return 1;
 }
@@ -4745,20 +4722,15 @@ compiler_joined_str(struct compiler *c, expr_ty e)
 
     Py_ssize_t value_count = asdl_seq_LEN(e->v.JoinedStr.values);
     if (value_count > STACK_USE_GUIDELINE) {
-        ADDOP_LOAD_CONST_NEW(c, _PyUnicode_FromASCII("", 0));
-        PyObject *join = _PyUnicode_FromASCII("join", 4);
-        if (join == NULL) {
-            return 0;
-        }
-        ADDOP_NAME(c, LOAD_METHOD, join, names);
-        Py_DECREF(join);
+        ADDOP_LOAD_CONST_NEW(c, &_Py_STR(empty));
+        ADDOP_NAME(c, LOAD_METHOD, &_Py_ID(join), names);
         ADDOP_I(c, BUILD_LIST, 0);
         for (Py_ssize_t i = 0; i < asdl_seq_LEN(e->v.JoinedStr.values); i++) {
             VISIT(c, expr, asdl_seq_GET(e->v.JoinedStr.values, i));
             ADDOP_I(c, LIST_APPEND, 1);
         }
         ADDOP_I(c, PRECALL, 1);
-        ADDOP_I(c, CALL, 0);
+        ADDOP_I(c, CALL, 1);
     }
     else {
         VISIT_SEQ(c, expr, e->v.JoinedStr.values);
@@ -4927,18 +4899,13 @@ compiler_call_helper(struct compiler *c,
     }
     if (nkwelts) {
         VISIT_SEQ(c, keyword, keywords);
-        ADDOP_I(c, PRECALL, n + nelts + nkwelts);
         if (!compiler_call_simple_kw_helper(c, keywords, nkwelts)) {
             return 0;
         };
-        ADDOP_I(c, CALL, nkwelts);
-        return 1;
     }
-    else {
-        ADDOP_I(c, PRECALL, n + nelts);
-        ADDOP_I(c, CALL, 0);
-        return 1;
-    }
+    ADDOP_I(c, PRECALL, n + nelts + nkwelts);
+    ADDOP_I(c, CALL, n + nelts + nkwelts);
+    return 1;
 
 ex_call:
 
