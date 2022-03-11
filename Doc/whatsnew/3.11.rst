@@ -254,6 +254,7 @@ inspect
 
 math
 ----
+
 * Add :func:`math.exp2`: return 2 raised to the power of x.
   (Contributed by Gideon Mitchell in :issue:`45917`.)
 
@@ -265,6 +266,9 @@ math
   ``math.pow(0.0, -math.inf)`` and ``math.pow(-0.0, -math.inf)`` now return
   ``inf``. Previously they raised :exc:`ValueError`. (Contributed by Mark
   Dickinson in :issue:`44339`.)
+
+* The :data:`math.nan` value is now always available.
+  (Contributed by Victor Stinner in :issue:`46917`.)
 
 
 operator
@@ -333,10 +337,6 @@ sqlite3
 * Fetch across rollback no longer raises :exc:`~sqlite3.InterfaceError`.
   Instead we leave it to the SQLite library to handle these cases.
   (Contributed by Erlend E. Aasland in :issue:`44092`.)
-
-* For SQLite 3.14.0 and newer, bound parameters are expanded in the statement
-  string passed to the trace callback. See :meth:`~sqlite3.Connection.set_trace_callback`.
-  (Contributed by Erlend E. Aasland in :issue:`45138`.)
 
 
 sys
@@ -648,6 +648,9 @@ Build Changes
 
 * Building Python now requires a C11 compiler without optional C11 features.
   (Contributed by Victor Stinner in :issue:`46656`.)
+
+* Building Python now requires support of IEEE 754 floating point numbers.
+  (Contributed by Victor Stinner in :issue:`46917`.)
 
 * CPython can now be built with the ThinLTO option via ``--with-lto=thin``.
   (Contributed by Dong-hee Na and Brett Holman in :issue:`44340`.)
