@@ -5517,7 +5517,7 @@ opname ## _miss: \
         _Py_CODEUNIT *counter = (_Py_CODEUNIT *)next_instr; \
         *counter -= 1; \
         if (*counter == 0) { \
-            next_instr[-1] = _Py_MAKECODEUNIT(opname ## _ADAPTIVE, _Py_OPARG(next_instr[-1])); \
+            _Py_SET_OPCODE(next_instr[-1], opname ## _ADAPTIVE); \
             STAT_INC(opname, deopt); \
             *counter = ADAPTIVE_CACHE_BACKOFF; \
         } \
@@ -6997,12 +6997,6 @@ PyEval_MergeCompilerFlags(PyCompilerFlags *cf)
             result = 1;
             cf->cf_flags |= compilerflags;
         }
-#if 0 /* future keyword */
-        if (codeflags & CO_GENERATOR_ALLOWED) {
-            result = 1;
-            cf->cf_flags |= CO_GENERATOR_ALLOWED;
-        }
-#endif
     }
     return result;
 }
