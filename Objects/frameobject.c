@@ -1104,6 +1104,14 @@ PyFrame_LocalsToFast(PyFrameObject *f, int clear)
     }
 }
 
+
+int _PyFrame_IsEntryFrame(PyFrameObject *frame)
+{
+    assert(frame != NULL);
+    return frame->f_frame->is_entry;
+}
+
+
 PyCodeObject *
 PyFrame_GetCode(PyFrameObject *frame)
 {
@@ -1152,7 +1160,7 @@ PyFrame_GetLasti(PyFrameObject *frame)
     if (lasti < 0) {
         return -1;
     }
-    return lasti*2;
+    return lasti * sizeof(_Py_CODEUNIT);
 }
 
 PyObject *
