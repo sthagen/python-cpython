@@ -559,6 +559,15 @@ os
   instead of ``CryptGenRandom()`` which is deprecated.
   (Contributed by Dong-hee Na in :issue:`44611`.)
 
+
+pathlib
+-------
+
+* :meth:`~pathlib.Path.glob` and :meth:`~pathlib.Path.rglob` return only
+  directories if *pattern* ends with a pathname components separator:
+  :data:`~os.sep` or :data:`~os.altsep`.
+  (Contributed by Eisuke Kawasima in :issue:`22276` and :issue:`33392`.)
+
 re
 --
 
@@ -1161,7 +1170,7 @@ Deprecated
 
   * the :class:`configparser.SafeConfigParser` class
   * the :attr:`configparser.ParsingError.filename` property
-  * the :meth:`configparser.ParsingError.readfp` method
+  * the :meth:`configparser.RawConfigParser.readfp` method
 
   (Contributed by Hugo van Kemenade in :issue:`45173`.)
 
