@@ -1863,8 +1863,15 @@ if test "$Py_LTO" = 'true' ; then
           # Any changes made here should be reflected in the GCC+Darwin case below
           if test $Py_LTO_POLICY = default
           then
-            LTOFLAGS="-flto -Wl,-export_dynamic -Wl,-object_path_lto,\"\$@\".lto"
-            LTOCFLAGS="-flto"
+            # Check that ThinLTO is accepted.
+            AX_CHECK_COMPILE_FLAG([-flto=thin],[
+              LTOFLAGS="-flto=thin -Wl,-export_dynamic -Wl,-object_path_lto,\"\$@\".lto"
+              LTOCFLAGS="-flto=thin"
+              ],[
+              LTOFLAGS="-flto -Wl,-export_dynamic -Wl,-object_path_lto,\"\$@\".lto"
+              LTOCFLAGS="-flto"
+              ]
+            )
           else
             LTOFLAGS="-flto=${Py_LTO_POLICY} -Wl,-export_dynamic -Wl,-object_path_lto,\"\$@\".lto"
             LTOCFLAGS="-flto=${Py_LTO_POLICY}"
@@ -1873,7 +1880,8 @@ if test "$Py_LTO" = 'true' ; then
         *)
           if test $Py_LTO_POLICY = default
           then
-            LTOFLAGS="-flto"
+            # Check that ThinLTO is accepted
+            AX_CHECK_COMPILE_FLAG([-flto=thin],[LTOFLAGS="-flto=thin"],[LTOFLAGS="-flto"])
           else
             LTOFLAGS="-flto=${Py_LTO_POLICY}"
           fi
@@ -7095,6 +7103,7 @@ AS_CASE([$ac_sys_system],
     dnl curses and tkinter user interface are not available.
     dnl dbm and gdbm aren't available, too.
     dnl Emscripten and WASI provide only stubs for pwd, grp APIs.
+    dnl resource functions (get/setrusage) are stubs, too.
     PY_STDLIB_MOD_SET_NA(
       [_curses],
       [_curses_panel],
@@ -7110,6 +7119,7 @@ AS_CASE([$ac_sys_system],
       [nis],
       [ossaudiodev],
       [pwd],
+      [resource],
       [spwd],
       [syslog],
     )
@@ -7118,7 +7128,6 @@ AS_CASE([$ac_sys_system],
         dnl These modules are not particularly useful in browsers.
         PY_STDLIB_MOD_SET_NA(
           [fcntl],
-          [resource],
           [readline],
           [termios],
         )
@@ -7130,7 +7139,6 @@ AS_CASE([$ac_sys_system],
           [_ctypes_test],
           [fcntl],
           [mmap],
-          [resource],
           [termios],
         )
       ]
