@@ -14,7 +14,7 @@ from datetime import date
 from enum import Enum, IntEnum, StrEnum, EnumType, Flag, IntFlag, unique, auto
 from enum import STRICT, CONFORM, EJECT, KEEP, _simple_enum, _test_simple_enum
 from enum import verify, UNIQUE, CONTINUOUS, NAMED_FLAGS, ReprEnum
-from enum import member, nonmember
+from enum import member, nonmember, _iter_bits_lsb
 from io import StringIO
 from pickle import dumps, loads, PicklingError, HIGHEST_PROTOCOL
 from test import support
@@ -173,6 +173,10 @@ class TestHelpers(unittest.TestCase):
             self.assertTrue(enum._is_private('MyEnum', name), '%r is a not private name?')
         for name in self.sunder_names + self.dunder_names + self.random_names:
             self.assertFalse(enum._is_private('MyEnum', name), '%r is a private name?')
+
+    def test_iter_bits_lsb(self):
+        self.assertEqual(list(_iter_bits_lsb(7)), [1, 2, 4])
+        self.assertRaisesRegex(ValueError, '-8 is not a positive integer', list, _iter_bits_lsb(-8))
 
 
 # for subclassing tests
@@ -3960,6 +3964,16 @@ class TestVerify(unittest.TestCase):
             triple = 3
             value = 4
 
+    def test_negative_alias(self):
+        @verify(NAMED_FLAGS)
+        class Color(Flag):
+            RED = 1
+            GREEN = 2
+            BLUE = 4
+            WHITE = -1
+        # no error means success
+
+
 class TestInternals(unittest.TestCase):
 
     sunder_names = '_bad_', '_good_', '_what_ho_'
@@ -4376,10 +4390,16 @@ class TestStdLib(unittest.TestCase):
             CYAN = 1
             MAGENTA = 2
             YELLOW = 3
+            @bltns.property
+            def zeroth(self):
+                return 'zeroed %s' % self.name
         class CheckedColor(Enum):
             CYAN = 1
             MAGENTA = 2
             YELLOW = 3
+            @bltns.property
+            def zeroth(self):
+                return 'zeroed %s' % self.name
         self.assertTrue(_test_simple_enum(CheckedColor, SimpleColor) is None)
         SimpleColor.MAGENTA._value_ = 9
         self.assertRaisesRegex(
