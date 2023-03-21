@@ -1930,6 +1930,7 @@ Py_FinalizeEx(void)
     if (show_ref_count) {
         _PyDebug_PrintTotalRefs();
     }
+    _Py_FinalizeRefTotal(runtime);
 #endif
 
 #ifdef Py_TRACE_REFS
@@ -2547,6 +2548,7 @@ _Py_FatalError_PrintExc(PyThreadState *tstate)
     if (ferr == NULL || ferr == Py_None) {
         /* sys.stderr is not set yet or set to None,
            no need to try to display the exception */
+        Py_DECREF(exc);
         return 0;
     }
 
@@ -2555,7 +2557,7 @@ _Py_FatalError_PrintExc(PyThreadState *tstate)
     PyObject *tb = PyException_GetTraceback(exc);
     int has_tb = (tb != NULL) && (tb != Py_None);
     Py_XDECREF(tb);
-    Py_XDECREF(exc);
+    Py_DECREF(exc);
 
     /* sys.stderr may be buffered: call sys.stderr.flush() */
     PyObject *res = PyObject_CallMethodNoArgs(ferr, &_Py_ID(flush));
