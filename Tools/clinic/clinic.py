@@ -12,6 +12,7 @@ import collections
 import contextlib
 import copy
 import cpp
+import enum
 import functools
 import hashlib
 import inspect
@@ -28,7 +29,7 @@ import traceback
 
 from collections.abc import Callable
 from types import FunctionType, NoneType
-from typing import Any, NamedTuple, NoReturn, Literal, overload
+from typing import Any, Final, NamedTuple, NoReturn, Literal, overload
 
 # TODO:
 #
@@ -58,25 +59,26 @@ CLINIC_PREFIXED_ARGS = {
     "return_value",
 }
 
-class Unspecified:
+
+class Sentinels(enum.Enum):
+    unspecified = "unspecified"
+    unknown = "unknown"
+
     def __repr__(self) -> str:
-        return '<Unspecified>'
-
-unspecified = Unspecified()
+        return f"<{self.value.capitalize()}>"
 
 
+unspecified: Final = Sentinels.unspecified
+unknown: Final = Sentinels.unknown
+
+
+# This one needs to be a distinct class, unlike the other two
 class Null:
     def __repr__(self) -> str:
         return '<Null>'
 
+
 NULL = Null()
-
-
-class Unknown:
-    def __repr__(self) -> str:
-        return '<Unknown>'
-
-unknown = Unknown()
 
 sig_end_marker = '--'
 
@@ -206,7 +208,7 @@ typedef typeof union unsigned void volatile while
 def ensure_legal_c_identifier(s: str) -> str:
     # for now, just complain if what we're given isn't legal
     if not is_legal_c_identifier(s):
-        fail("Illegal C identifier: {}".format(s))
+        fail("Illegal C identifier:", s)
     # but if we picked a C keyword, pick something else
     if s in c_keywords:
         return s + "_value"
@@ -322,9 +324,9 @@ def version_splitter(s: str) -> tuple[int, ...]:
         c -> -1
     (This permits Python-style version strings such as "1.4b3".)
     """
-    version = []
+    version: list[int] = []
     accumulator: list[str] = []
-    def flush():
+    def flush() -> None:
         if not accumulator:
             raise ValueError('Unsupported version string: ' + repr(s))
         version.append(int(''.join(accumulator)))
@@ -546,8 +548,6 @@ def permute_optional_groups(left, required, right):
     If required is empty, left must also be empty.
     """
     required = tuple(required)
-    result = []
-
     if not required:
         if left:
             raise ValueError("required is empty but left is not")
@@ -991,7 +991,7 @@ class CLanguage(Language):
                 argname_fmt = 'PyTuple_GET_ITEM(args, %d)'
 
 
-            left_args = "{} - {}".format(nargs, max_pos)
+            left_args = f"{nargs} - {max_pos}"
             max_args = NO_VARARG if (vararg != NO_VARARG) else max_pos
             parser_code = [normalize_snippet("""
                 if (!_PyArg_CheckPositional("{name}", %s, %d, %s)) {{
@@ -1336,7 +1336,6 @@ class CLanguage(Language):
         if isinstance(parameters[0].converter, self_converter):
             del parameters[0]
 
-        groups = []
         group = None
         left = []
         right = []
@@ -1426,8 +1425,6 @@ class CLanguage(Language):
         first_optional = len(selfless)
         positional = selfless and selfless[-1].is_positional_only()
         new_or_init = f.kind in (METHOD_NEW, METHOD_INIT)
-        default_return_converter = (not f.return_converter or
-            f.return_converter.type == 'PyObject *')
         has_option_groups = False
 
         # offset i by -1 because first_optional needs to ignore self
@@ -1438,7 +1435,7 @@ class CLanguage(Language):
                 first_optional = min(first_optional, i)
 
             if p.is_vararg():
-                data.cleanup.append("Py_XDECREF({});".format(c.parser_name))
+                data.cleanup.append(f"Py_XDECREF({c.parser_name});")
 
             # insert group variable
             group = p.group
@@ -1490,8 +1487,7 @@ class CLanguage(Language):
 
         template_dict['c_basename'] = c_basename
 
-        methoddef_name = "{}_METHODDEF".format(c_basename.upper())
-        template_dict['methoddef_name'] = methoddef_name
+        template_dict['methoddef_name'] = c_basename.upper() + "_METHODDEF"
 
         template_dict['docstring'] = self.docstring_for_c_string(f)
 
@@ -1524,7 +1520,6 @@ class CLanguage(Language):
         template_dict['return_value'] = data.return_value
 
         # used by unpack tuple code generator
-        ignore_self = -1 if isinstance(converters[0], self_converter) else 0
         unpack_min = first_optional
         unpack_max = len(selfless)
         template_dict['unpack_min'] = str(unpack_min)
@@ -1745,7 +1740,7 @@ class BlockParser:
             # make sure to recognize stop line even if it
             # doesn't end with EOL (it could be the very end of the file)
             if line.startswith(stop_line):
-                remainder = line[len(stop_line):]
+                remainder = line.removeprefix(stop_line)
                 if remainder and not remainder.isspace():
                     fail(f"Garbage after stop line: {remainder!r}")
                 return True
@@ -1763,7 +1758,7 @@ class BlockParser:
             if body_prefix:
                 line = line.lstrip()
                 assert line.startswith(body_prefix)
-                line = line[len(body_prefix):]
+                line = line.removeprefix(body_prefix)
             input_add(line)
 
         # consume output and checksum line, if present.
@@ -1795,16 +1790,14 @@ class BlockParser:
             for field in shlex.split(arguments):
                 name, equals, value = field.partition('=')
                 if not equals:
-                    fail("Mangled Argument Clinic marker line: {!r}".format(line))
+                    fail("Mangled Argument Clinic marker line:", repr(line))
                 d[name.strip()] = value.strip()
 
             if self.verify:
                 if 'input' in d:
                     checksum = d['output']
-                    input_checksum = d['input']
                 else:
                     checksum = d['checksum']
-                    input_checksum = None
 
                 computed = compute_checksum(output, len(checksum))
                 if checksum != computed:
@@ -1873,7 +1866,10 @@ class BlockPrinter:
                 output += '\n'
             write(output)
 
-        arguments="output={} input={}".format(compute_checksum(output, 16), compute_checksum(input, 16))
+        arguments = "output={output} input={input}".format(
+            output=compute_checksum(output, 16),
+            input=compute_checksum(input, 16)
+        )
         write(self.language.checksum_line.format(dsl_name=dsl_name, arguments=arguments))
         write("\n")
 
@@ -1982,7 +1978,7 @@ return_converters = {}
 def file_changed(filename: str, new_contents: str) -> bool:
     """Return true if file contents changed (meaning we must update it)"""
     try:
-        with open(filename, 'r', encoding="utf-8") as fp:
+        with open(filename, encoding="utf-8") as fp:
             old_contents = fp.read()
         return old_contents != new_contents
     except FileNotFoundError:
@@ -2058,8 +2054,8 @@ impl_definition block
         self.printer = printer or BlockPrinter(language)
         self.verify = verify
         self.filename = filename
-        self.modules = collections.OrderedDict()
-        self.classes = collections.OrderedDict()
+        self.modules = {}
+        self.classes = {}
         self.functions = []
 
         self.line_prefix = self.line_suffix = ''
@@ -2072,18 +2068,18 @@ impl_definition block
             self.add_destination("file", "file", "{dirname}/clinic/{basename}.h")
 
         d = self.get_destination_buffer
-        self.destination_buffers = collections.OrderedDict((
-            ('cpp_if', d('file')),
-            ('docstring_prototype', d('suppress')),
-            ('docstring_definition', d('file')),
-            ('methoddef_define', d('file')),
-            ('impl_prototype', d('file')),
-            ('parser_prototype', d('suppress')),
-            ('parser_definition', d('file')),
-            ('cpp_endif', d('file')),
-            ('methoddef_ifndef', d('file', 1)),
-            ('impl_definition', d('block')),
-        ))
+        self.destination_buffers = {
+            'cpp_if': d('file'),
+            'docstring_prototype': d('suppress'),
+            'docstring_definition': d('file'),
+            'methoddef_define': d('file'),
+            'impl_prototype': d('file'),
+            'parser_prototype': d('suppress'),
+            'parser_definition': d('file'),
+            'cpp_endif': d('file'),
+            'methoddef_ifndef': d('file', 1),
+            'impl_definition': d('block'),
+        }
 
         self.destination_buffers_stack = []
         self.ifndef_symbols = set()
@@ -2096,7 +2092,7 @@ impl_definition block
                 continue
             name, value, *options = line.split()
             if name == 'preset':
-                self.presets[value] = preset = collections.OrderedDict()
+                self.presets[value] = preset = {}
                 continue
 
             if len(options):
@@ -2138,7 +2134,7 @@ impl_definition block
             dsl_name = block.dsl_name
             if dsl_name:
                 if dsl_name not in self.parsers:
-                    assert dsl_name in parsers, "No parser to handle {!r} block.".format(dsl_name)
+                    assert dsl_name in parsers, f"No parser to handle {dsl_name!r} block."
                     self.parsers[dsl_name] = parsers[dsl_name](self)
                 parser = self.parsers[dsl_name]
                 try:
@@ -2178,7 +2174,7 @@ impl_definition block
                                      "can't make directory {}!".format(
                                         destination.filename, dirname))
                         if self.verify:
-                            with open(destination.filename, "rt") as f:
+                            with open(destination.filename) as f:
                                 parser_2 = BlockParser(f.read(), language=self.language)
                                 blocks = list(parser_2)
                                 if (len(blocks) != 1) or (blocks[0].input != 'preserve\n'):
@@ -2227,7 +2223,12 @@ impl_definition block
         return module, cls
 
 
-def parse_file(filename, *, verify=True, output=None):
+def parse_file(
+        filename: str,
+        *,
+        verify: bool = True,
+        output: str | None = None
+) -> None:
     if not output:
         output = filename
 
@@ -2240,7 +2241,7 @@ def parse_file(filename, *, verify=True, output=None):
     except KeyError:
         fail("Can't identify file type for file " + repr(filename))
 
-    with open(filename, 'r', encoding="utf-8") as f:
+    with open(filename, encoding="utf-8") as f:
         raw = f.read()
 
     # exit quickly if there are no clinic markers in the file
@@ -2259,7 +2260,10 @@ def parse_file(filename, *, verify=True, output=None):
             write_file(fn, data)
 
 
-def compute_checksum(input, length=None):
+def compute_checksum(
+        input: str | None,
+        length: int | None = None
+) -> str:
     input = input or ''
     s = hashlib.sha1(input.encode('utf-8')).hexdigest()
     if length:
@@ -2270,30 +2274,46 @@ def compute_checksum(input, length=None):
 
 
 class PythonParser:
-    def __init__(self, clinic):
+    def __init__(self, clinic: Clinic) -> None:
         pass
 
-    def parse(self, block):
+    def parse(self, block: Block) -> None:
         s = io.StringIO()
         with OverrideStdioWith(s):
             exec(block.input)
         block.output = s.getvalue()
 
 
+ModuleDict = dict[str, "Module"]
+
 class Module:
-    def __init__(self, name, module=None):
+    def __init__(
+            self,
+            name: str,
+            module = None
+    ) -> None:
         self.name = name
         self.module = self.parent = module
 
-        self.modules = collections.OrderedDict()
-        self.classes = collections.OrderedDict()
-        self.functions = []
+        self.modules: ModuleDict = {}
+        self.classes: ClassDict = {}
+        self.functions: list[Function] = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<clinic.Module " + repr(self.name) + " at " + str(id(self)) + ">"
 
+
+ClassDict = dict[str, "Class"]
+
 class Class:
-    def __init__(self, name, module=None, cls=None, typedef=None, type_object=None):
+    def __init__(
+            self,
+            name: str,
+            module: Module | None = None,
+            cls = None,
+            typedef: str | None = None,
+            type_object: str | None = None
+    ) -> None:
         self.name = name
         self.module = module
         self.cls = cls
@@ -2301,13 +2321,14 @@ class Class:
         self.type_object = type_object
         self.parent = cls or module
 
-        self.classes = collections.OrderedDict()
-        self.functions = []
+        self.classes: ClassDict = {}
+        self.functions: list[Function] = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<clinic.Class " + repr(self.name) + " at " + str(id(self)) + ">"
 
-unsupported_special_methods = set("""
+
+unsupported_special_methods: set[str] = set("""
 
 __abs__
 __add__
@@ -2401,7 +2422,7 @@ class Function:
                  return_converter, return_annotation=inspect.Signature.empty,
                  docstring=None, kind=CALLABLE, coexist=False,
                  docstring_only=False):
-        self.parameters = parameters or collections.OrderedDict()
+        self.parameters = parameters or {}
         self.return_annotation = return_annotation
         self.name = name
         self.full_name = full_name
@@ -2462,12 +2483,10 @@ class Function:
             }
         kwargs.update(overrides)
         f = Function(**kwargs)
-
-        parameters = collections.OrderedDict()
-        for name, value in f.parameters.items():
-            value = value.copy(function=f)
-            parameters[name] = value
-        f.parameters = parameters
+        f.parameters = {
+            name: value.copy(function=f)
+            for name, value in f.parameters.items()
+        }
         return f
 
 
@@ -2520,9 +2539,9 @@ class Parameter:
         if i == 0:
             return '"argument"'
         if not self.is_positional_only():
-            return '''"argument '{}'"'''.format(self.name)
+            return f'"argument {self.name!r}"'
         else:
-            return '"argument {}"'.format(i)
+            return f'"argument {i}"'
 
 
 class LandMine:
@@ -2545,7 +2564,7 @@ def add_c_converter(f, name=None):
         name = f.__name__
         if not name.endswith('_converter'):
             return f
-        name = name[:-len('_converter')]
+        name = name.removesuffix('_converter')
     converters[name] = f
     return f
 
@@ -2600,7 +2619,7 @@ class CConverter(metaclass=CConverterAutoRegister):
     # Or the magic value "unknown" if this value is a cannot be evaluated
     # at Argument-Clinic-preprocessing time (but is presumed to be valid
     # at runtime).
-    default = unspecified
+    default: object = unspecified
 
     # If not None, default must be isinstance() of this type.
     # (You can also specify a tuple of types.)
@@ -2655,7 +2674,7 @@ class CConverter(metaclass=CConverterAutoRegister):
 
     # What encoding do we want for this variable?  Only used
     # by format units starting with 'e'.
-    encoding = None
+    encoding: str | None = None
 
     # Should this object be required to be a subclass of a specific type?
     # If not None, should be a string representing a pointer to a
@@ -2686,11 +2705,11 @@ class CConverter(metaclass=CConverterAutoRegister):
              name: str,
              py_name: str,
              function,
-             default=unspecified,
+             default: object = unspecified,
              *,  # Keyword only args:
              c_default: str | None = None,
              py_default: str | None = None,
-             annotation: str | Unspecified = unspecified,
+             annotation: str | Literal[Sentinels.unspecified] = unspecified,
              unused: bool = False,
              **kwargs
     ):
@@ -2699,11 +2718,15 @@ class CConverter(metaclass=CConverterAutoRegister):
         self.unused = unused
 
         if default is not unspecified:
-            if self.default_type and not isinstance(default, (self.default_type, Unknown)):
+            if (self.default_type
+                and default is not unknown
+                and not isinstance(default, self.default_type)
+            ):
                 if isinstance(self.default_type, type):
                     types_str = self.default_type.__name__
                 else:
-                    types_str = ', '.join((cls.__name__ for cls in self.default_type))
+                    names = [cls.__name__ for cls in self.default_type]
+                    types_str = ', '.join(names)
                 fail("{}: default value {!r} for field {} is not of type {}".format(
                     self.__class__.__name__, default, name, types_str))
             self.default = default
@@ -2713,7 +2736,7 @@ class CConverter(metaclass=CConverterAutoRegister):
         if py_default:
             self.py_default = py_default
 
-        if annotation != unspecified:
+        if annotation is not unspecified:
             fail("The 'annotation' parameter is not currently permitted.")
 
         # this is deliberate, to prevent you from caching information
@@ -2982,6 +3005,8 @@ converters: ConverterDict = {}
 # note however that they will never be called with keyword-only parameters.
 legacy_converters: ConverterDict = {}
 
+TypeSet = set[bltns.type[Any]]
+
 
 class bool_converter(CConverter):
     type = 'int'
@@ -2989,7 +3014,7 @@ class bool_converter(CConverter):
     format_unit = 'p'
     c_ignored_default = '0'
 
-    def converter_init(self, *, accept={object}):
+    def converter_init(self, *, accept: TypeSet = {object}) -> None:
         if accept == {int}:
             self.format_unit = 'i'
         elif accept != {object}:
@@ -3176,7 +3201,7 @@ class int_converter(CConverter):
     format_unit = 'i'
     c_ignored_default = "0"
 
-    def converter_init(self, *, accept={int}, type=None) -> None:
+    def converter_init(self, *, accept: TypeSet = {int}, type=None) -> None:
         if accept == {str}:
             self.format_unit = 'C'
         elif accept != {int}:
@@ -3313,7 +3338,7 @@ class Py_ssize_t_converter(CConverter):
     type = 'Py_ssize_t'
     c_ignored_default = "0"
 
-    def converter_init(self, *, accept={int}) -> None:
+    def converter_init(self, *, accept: TypeSet = {int}) -> None:
         if accept == {int}:
             self.format_unit = 'n'
             self.default_type = int
@@ -3344,7 +3369,7 @@ class Py_ssize_t_converter(CConverter):
 class slice_index_converter(CConverter):
     type = 'Py_ssize_t'
 
-    def converter_init(self, *, accept={int, NoneType}) -> None:
+    def converter_init(self, *, accept: TypeSet = {int, NoneType}) -> None:
         if accept == {int}:
             self.converter = '_PyEval_SliceIndexNotNone'
         elif accept == {int, NoneType}:
@@ -3447,7 +3472,12 @@ class object_converter(CConverter):
     type = 'PyObject *'
     format_unit = 'O'
 
-    def converter_init(self, *, converter=None, type=None, subclass_of=None):
+    def converter_init(
+            self, *,
+            converter=None,
+            type=None,
+            subclass_of=None
+    ) -> None:
         if converter:
             if subclass_of:
                 fail("object: Cannot pass in both 'converter' and 'subclass_of'")
@@ -3483,7 +3513,13 @@ class str_converter(CConverter):
     default_type = (str, Null, NoneType)
     format_unit = 's'
 
-    def converter_init(self, *, accept={str}, encoding=None, zeroes=False):
+    def converter_init(
+            self,
+            *,
+            accept: TypeSet = {str},
+            encoding: str | None = None,
+            zeroes: bool = False
+    ) -> None:
 
         key = str_converter_key(accept, encoding, zeroes)
         format_unit = str_converter_argument_map.get(key)
@@ -3561,7 +3597,14 @@ class str_converter(CConverter):
 # mapping from arguments to format unit *and* registers the
 # legacy C converter for that format unit.
 #
-def r(format_unit, *, accept, encoding=False, zeroes=False):
+ConverterKeywordDict = dict[str, TypeSet | bool]
+
+def r(format_unit: str,
+      *,
+      accept: TypeSet,
+      encoding: bool = False,
+      zeroes: bool = False
+) -> None:
     if not encoding and format_unit != 's':
         # add the legacy c converters here too.
         #
@@ -3571,7 +3614,7 @@ def r(format_unit, *, accept, encoding=False, zeroes=False):
         #
         # also don't add the converter for 's' because
         # the metaclass for CConverter adds it for us.
-        kwargs = {}
+        kwargs: ConverterKeywordDict = {}
         if accept != {str}:
             kwargs['accept'] = accept
         if zeroes:
@@ -3660,7 +3703,11 @@ class Py_UNICODE_converter(CConverter):
     type = 'const Py_UNICODE *'
     default_type = (str, Null, NoneType)
 
-    def converter_init(self, *, accept={str}, zeroes: bool = False) -> None:
+    def converter_init(
+            self, *,
+            accept: TypeSet = {str},
+            zeroes: bool = False
+    ) -> None:
         format_unit = 'Z' if accept=={str, NoneType} else 'u'
         if zeroes:
             format_unit += '#'
@@ -3722,7 +3769,7 @@ class Py_buffer_converter(CConverter):
     impl_by_reference = True
     c_ignored_default = "{NULL, NULL}"
 
-    def converter_init(self, *, accept={buffer}) -> None:
+    def converter_init(self, *, accept: TypeSet = {buffer}) -> None:
         if self.default not in (unspecified, None):
             fail("The only legal default value for Py_buffer is None.")
 
@@ -3911,7 +3958,7 @@ class self_converter(CConverter):
                               ' Py_TYPE({0})->tp_new == base_tp->tp_new)'
                              ).format(self.name)
 
-            line = '{} &&\n        '.format(type_check)
+            line = f'{type_check} &&\n        '
             template_dict['self_type_check'] = line
 
             type_object = self.function.cls.type_object
@@ -3925,7 +3972,7 @@ def add_c_return_converter(f, name=None):
         name = f.__name__
         if not name.endswith('_return_converter'):
             return f
-        name = name[:-len('_return_converter')]
+        name = name.removesuffix('_return_converter')
     return_converters[name] = f
     return f
 
@@ -3943,7 +3990,7 @@ class CReturnConverter(metaclass=CReturnConverterAutoRegister):
 
     # The Python default value for this parameter, as a Python value.
     # Or the magic value "unspecified" if there is no default.
-    default = None
+    default: object = None
 
     def __init__(self, *, py_default=None, **kwargs):
         self.py_default = py_default
@@ -3967,10 +4014,12 @@ class CReturnConverter(metaclass=CReturnConverterAutoRegister):
         data.return_value = data.converter_retval
 
     def err_occurred_if(self, expr, data):
-        data.return_conversion.append('if (({}) && PyErr_Occurred()) {{\n    goto exit;\n}}\n'.format(expr))
+        line = f'if (({expr}) && PyErr_Occurred()) {{\n    goto exit;\n}}\n'
+        data.return_conversion.append(line)
 
     def err_occurred_if_null_pointer(self, variable, data):
-        data.return_conversion.append('if ({} == NULL) {{\n    goto exit;\n}}\n'.format(variable))
+        line = f'if ({variable} == NULL) {{\n    goto exit;\n}}\n'
+        data.return_conversion.append(line)
 
     def render(self, function, data):
         """
@@ -4152,8 +4201,10 @@ class IndentStack:
         return line[indent:]
 
 
+StateKeeper = Callable[[str | None], None]
+
 class DSLParser:
-    def __init__(self, clinic):
+    def __init__(self, clinic: Clinic) -> None:
         self.clinic = clinic
 
         self.directives = {}
@@ -4170,9 +4221,9 @@ class DSLParser:
 
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self.function = None
-        self.state = self.state_dsl_start
+        self.state: StateKeeper = self.state_dsl_start
         self.parameter_indent = None
         self.keyword_only = False
         self.positional_only = False
@@ -4185,14 +4236,13 @@ class DSLParser:
         self.parameter_continuation = ''
         self.preserve_output = False
 
-    def directive_version(self, required):
+    def directive_version(self, required: str) -> None:
         global version
         if version_comparitor(version, required) < 0:
             fail("Insufficient Clinic version!\n  Version: " + version + "\n  Required: " + required)
 
-    def directive_module(self, name):
-        fields = name.split('.')
-        new = fields.pop()
+    def directive_module(self, name: str) -> None:
+        fields = name.split('.')[:-1]
         module, cls = self.clinic._module_and_class(fields)
         if cls:
             fail("Can't nest a module inside a class!")
@@ -4204,12 +4254,14 @@ class DSLParser:
         module.modules[name] = m
         self.block.signatures.append(m)
 
-    def directive_class(self, name, typedef, type_object):
+    def directive_class(
+            self,
+            name: str,
+            typedef: str,
+            type_object: str
+    ) -> None:
         fields = name.split('.')
-        in_classes = False
-        parent = self
         name = fields.pop()
-        so_far = []
         module, cls = self.clinic._module_and_class(fields)
 
         parent = cls or module
@@ -4220,7 +4272,7 @@ class DSLParser:
         parent.classes[name] = c
         self.block.signatures.append(c)
 
-    def directive_set(self, name, value):
+    def directive_set(self, name: str, value: str) -> None:
         if name not in ("line_prefix", "line_suffix"):
             fail("unknown variable", repr(name))
 
@@ -4231,7 +4283,12 @@ class DSLParser:
 
         self.clinic.__dict__[name] = value
 
-    def directive_destination(self, name, command, *args):
+    def directive_destination(
+            self,
+            name: str,
+            command: str,
+            *args
+    ) -> None:
         if command == 'new':
             self.clinic.add_destination(name, *args)
             return
@@ -4241,7 +4298,11 @@ class DSLParser:
         fail("unknown destination command", repr(command))
 
 
-    def directive_output(self, command_or_name, destination=''):
+    def directive_output(
+            self,
+            command_or_name: str,
+            destination: str = ''
+    ) -> None:
         fd = self.clinic.destination_buffers
 
         if command_or_name == "preset":
@@ -4279,34 +4340,34 @@ class DSLParser:
             fail("Invalid command / destination name " + repr(command_or_name) + ", must be one of:\n  preset push pop print everything " + " ".join(fd))
         fd[command_or_name] = d
 
-    def directive_dump(self, name):
+    def directive_dump(self, name: str) -> None:
         self.block.output.append(self.clinic.get_destination(name).dump())
 
-    def directive_printout(self, *args):
+    def directive_printout(self, *args: str) -> None:
         self.block.output.append(' '.join(args))
         self.block.output.append('\n')
 
-    def directive_preserve(self):
+    def directive_preserve(self) -> None:
         if self.preserve_output:
             fail("Can't have preserve twice in one block!")
         self.preserve_output = True
 
-    def at_classmethod(self):
+    def at_classmethod(self) -> None:
         if self.kind is not CALLABLE:
             fail("Can't set @classmethod, function is not a normal callable")
         self.kind = CLASS_METHOD
 
-    def at_staticmethod(self):
+    def at_staticmethod(self) -> None:
         if self.kind is not CALLABLE:
             fail("Can't set @staticmethod, function is not a normal callable")
         self.kind = STATIC_METHOD
 
-    def at_coexist(self):
+    def at_coexist(self) -> None:
         if self.coexist:
             fail("Called @coexist twice!")
         self.coexist = True
 
-    def parse(self, block):
+    def parse(self, block: Block) -> None:
         self.reset()
         self.block = block
         self.saved_output = self.block.output
@@ -4342,10 +4403,14 @@ class DSLParser:
         return False
 
     @staticmethod
-    def calculate_indent(line):
+    def calculate_indent(line: str) -> int:
         return len(line) - len(line.strip())
 
-    def next(self, state, line=None):
+    def next(
+            self,
+            state: StateKeeper,
+            line: str | None = None
+    ) -> None:
         # real_print(self.state.__name__, "->", state.__name__, ", line=", line)
         self.state = state
         if line is not None:
@@ -4436,13 +4501,13 @@ class DSLParser:
         c_basename = c_basename.strip() or None
 
         if not is_legal_py_identifier(full_name):
-            fail("Illegal function name: {}".format(full_name))
+            fail("Illegal function name:", full_name)
         if c_basename and not is_legal_c_identifier(c_basename):
-            fail("Illegal C basename: {}".format(c_basename))
+            fail("Illegal C basename:", c_basename)
 
         return_converter = None
         if returns:
-            ast_input = "def x() -> {}: pass".format(returns)
+            ast_input = f"def x() -> {returns}: pass"
             module = None
             try:
                 module = ast.parse(ast_input)
@@ -4655,7 +4720,7 @@ class DSLParser:
 
         module = None
         try:
-            ast_input = "def x({}): pass".format(base)
+            ast_input = f"def x({base}): pass"
             module = ast.parse(ast_input)
         except SyntaxError:
             try:
@@ -4663,7 +4728,7 @@ class DSLParser:
                 #   c: int(accept={str})
                 # so assume there was no actual default value.
                 default = None
-                ast_input = "def x({}): pass".format(line)
+                ast_input = f"def x({line}): pass"
                 module = ast.parse(ast_input)
             except SyntaxError:
                 pass
@@ -4707,8 +4772,7 @@ class DSLParser:
                 self.parameter_state = self.ps_optional
             default = default.strip()
             bad = False
-            ast_input = "x = {}".format(default)
-            bad = False
+            ast_input = f"x = {default}"
             try:
                 module = ast.parse(ast_input)
 
@@ -4745,7 +4809,7 @@ class DSLParser:
                     # but at least make an attempt at ensuring it's a valid expression.
                     try:
                         value = eval(default)
-                        if value == unspecified:
+                        if value is unspecified:
                             fail("'unspecified' is not a legal default value!")
                     except NameError:
                         pass # probably a named constant
@@ -4815,7 +4879,7 @@ class DSLParser:
         dict = legacy_converters if legacy else converters
         legacy_str = "legacy " if legacy else ""
         if name not in dict:
-            fail('{} is not a valid {}converter'.format(name, legacy_str))
+            fail(f'{name} is not a valid {legacy_str}converter')
         # if you use a c_name for the parameter, we just give that name to the converter
         # but the parameter object gets the python name
         converter = dict[name](c_name or parameter_name, parameter_name, self.function, value, **kwargs)
@@ -5319,7 +5383,7 @@ For more information see https://docs.python.org/3/howto/clinic.html""")
                 if name in ignored:
                     continue
                 if name.endswith(suffix):
-                    ids.append((name, name[:-len(suffix)]))
+                    ids.append((name, name.removesuffix(suffix)))
                     break
         print()
 
@@ -5347,7 +5411,7 @@ For more information see https://docs.python.org/3/howto/clinic.html""")
                 for parameter_name, parameter in signature.parameters.items():
                     if parameter.kind == inspect.Parameter.KEYWORD_ONLY:
                         if parameter.default != inspect.Parameter.empty:
-                            s = '{}={!r}'.format(parameter_name, parameter.default)
+                            s = f'{parameter_name}={parameter.default!r}'
                         else:
                             s = parameter_name
                         parameters.append(s)
