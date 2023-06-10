@@ -85,7 +85,8 @@ _tokenizer_error(struct tok_state *tok)
             break;
         case E_EOF:
             PyErr_SetString(PyExc_SyntaxError, "unexpected EOF in multi-line statement");
-            PyErr_SyntaxLocationObject(tok->filename, tok->lineno, tok->inp - tok->buf < 0 ? 0 : tok->inp - tok->buf);
+            PyErr_SyntaxLocationObject(tok->filename, tok->lineno,
+                                       tok->inp - tok->buf < 0 ? 0 : (int)(tok->inp - tok->buf));
             return -1;
         case E_DEDENT:
             msg = "unindent does not match any outer indentation level";
@@ -205,6 +206,9 @@ tokenizeriter_next(tokenizeriterobject *it)
         line = PyUnicode_FromString("");
     } else {
         Py_ssize_t size = it->tok->inp - line_start;
+        if (size >= 1 && it->tok->implicit_newline) {
+            size -= 1;
+        }
         line = PyUnicode_DecodeUTF8(line_start, size, "replace");
     }
     if (line == NULL) {
