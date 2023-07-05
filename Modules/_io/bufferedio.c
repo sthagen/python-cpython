@@ -10,6 +10,8 @@
 #include "Python.h"
 #include "pycore_call.h"          // _PyObject_CallNoArgs()
 #include "pycore_object.h"
+#include "pycore_pyerrors.h"      // _Py_FatalErrorFormat()
+#include "pycore_pylifecycle.h"   // _Py_IsInterpreterFinalizing()
 #include "structmember.h"         // PyMemberDef
 #include "_iomodule.h"
 
@@ -292,7 +294,7 @@ _enter_buffered_busy(buffered *self)
                      "reentrant call inside %R", self);
         return 0;
     }
-    PyInterpreterState *interp = PyInterpreterState_Get();
+    PyInterpreterState *interp = _PyInterpreterState_GET();
     relax_locking = _Py_IsInterpreterFinalizing(interp);
     Py_BEGIN_ALLOW_THREADS
     if (!relax_locking)
