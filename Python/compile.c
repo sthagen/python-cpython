@@ -28,12 +28,13 @@
 #define NEED_OPCODE_TABLES
 #include "pycore_opcode_utils.h"
 #undef NEED_OPCODE_TABLES
-#include "pycore_flowgraph.h"
 #include "pycore_code.h"          // _PyCode_New()
 #include "pycore_compile.h"
+#include "pycore_flowgraph.h"
 #include "pycore_intrinsics.h"
 #include "pycore_long.h"          // _PyLong_GetZero()
 #include "pycore_pystate.h"       // _Py_GetConfig()
+#include "pycore_setobject.h"     // _PySet_NextEntry()
 #include "pycore_symtable.h"      // PySTEntryObject, _PyFuture_FromAST()
 
 #define NEED_OPCODE_METADATA
@@ -894,6 +895,24 @@ int
 PyUnstable_OpcodeHasJump(int opcode)
 {
     return OPCODE_HAS_JUMP(opcode);
+}
+
+int
+PyUnstable_OpcodeHasFree(int opcode)
+{
+    return OPCODE_HAS_FREE(opcode);
+}
+
+int
+PyUnstable_OpcodeHasLocal(int opcode)
+{
+    return OPCODE_HAS_LOCAL(opcode);
+}
+
+int
+PyUnstable_OpcodeHasExc(int opcode)
+{
+    return IS_BLOCK_PUSH_OPCODE(opcode);
 }
 
 static int
@@ -2267,6 +2286,7 @@ compiler_function_body(struct compiler *c, stmt_ty s, int is_async, Py_ssize_t f
         }
     }
     if (compiler_add_const(c->c_const_cache, c->u, docstring ? docstring : Py_None) < 0) {
+        Py_XDECREF(docstring);
         compiler_exit_scope(c);
         return ERROR;
     }
@@ -8034,6 +8054,12 @@ _PyCompile_CleanDoc(PyObject *doc)
     }
 
     char *buff = PyMem_Malloc(doc_size);
+    if (buff == NULL){
+        Py_DECREF(doc);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
     char *w = buff;
 
     while (p < pend) {
@@ -8060,7 +8086,9 @@ _PyCompile_CleanDoc(PyObject *doc)
     }
 
     Py_DECREF(doc);
-    return PyUnicode_FromStringAndSize(buff, w - buff);
+    PyObject *res = PyUnicode_FromStringAndSize(buff, w - buff);
+    PyMem_Free(buff);
+    return res;
 }
 
 
