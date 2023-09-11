@@ -630,6 +630,12 @@ fractions
 * Objects of type :class:`fractions.Fraction` now support float-style
   formatting. (Contributed by Mark Dickinson in :gh:`100161`.)
 
+importlib.resources
+-------------------
+
+* :func:`importlib.resources.as_file` now supports resource directories.
+  (Contributed by Jason R. Coombs in :gh:`97930`.)
+
 inspect
 -------
 
@@ -996,6 +1002,9 @@ CPython bytecode changes
 
 * Remove the :opcode:`!JUMP_IF_FALSE_OR_POP` and :opcode:`!JUMP_IF_TRUE_OR_POP`
   instructions. (Contributed by Irit Katriel in :gh:`102859`.)
+
+* Removed the :opcode:`!PRECALL` instruction. (Contributed by Mark Shannon in
+  :gh:`92925`.)
 
 * Add the :opcode:`LOAD_FAST_AND_CLEAR` instruction as part of the
   implementation of :pep:`709`. (Contributed by Carl Meyer in :gh:`101441`.)
@@ -1590,7 +1599,7 @@ Changes in the Python API
   functions is now changed due to the changes introduced in :pep:`701`. This
   means that ``STRING`` tokens are not emitted any more for f-strings and the
   tokens described in :pep:`701` are now produced instead: ``FSTRING_START``,
-  ``FSRING_MIDDLE`` and ``FSTRING_END`` are now emitted for f-string "string"
+  ``FSTRING_MIDDLE`` and ``FSTRING_END`` are now emitted for f-string "string"
   parts in addition to the appropriate tokens for the tokenization in the
   expression components. For example for the f-string ``f"start {1+1} end"``
   the old version of the tokenizer emitted::
