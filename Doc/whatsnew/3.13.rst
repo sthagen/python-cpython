@@ -938,8 +938,9 @@ Build Changes
   library, GCC built-in atomic functions, or MSVC interlocked intrinsics.
 
 * The ``errno``, ``md5``, ``resource``, ``winsound``, ``_ctypes_test``,
-  ``_scproxy``, ``_stat``, ``_testimportmultiple`` and ``_uuid`` C extensions
-  are now built with the :ref:`limited C API <limited-c-api>`.
+  ``_multiprocessing.posixshmem``, ``_scproxy``, ``_stat``,
+  ``_testimportmultiple`` and ``_uuid`` C extensions are now built with the
+  :ref:`limited C API <limited-c-api>`.
   (Contributed by Victor Stinner in :gh:`85283`.)
 
 
@@ -1107,6 +1108,12 @@ Porting to Python 3.13
   :c:macro:`!Py_BUILD_CORE_BUILTIN` and :c:macro:`!Py_BUILD_CORE_MODULE` macros
   are now undefined by ``<Python.h>``.
   (Contributed by Victor Stinner in :gh:`85283`.)
+
+* The :c:func:`PyUnicode_AsUTF8` function now raises an exception if the string
+  contains embedded null characters. To accept embedded null characters and
+  truncate on purpose at the first null byte,
+  ``PyUnicode_AsUTF8AndSize(unicode, NULL)`` can be used instead.
+  (Contributed by Victor Stinner in :gh:`111089`.)
 
 Deprecated
 ----------
