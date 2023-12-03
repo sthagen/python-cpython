@@ -273,7 +273,7 @@ attributes (see :ref:`import-mod-attrs` for module attributes):
 
       :func:`getmembers` will only return class attributes defined in the
       metaclass when the argument is a class and those attributes have been
-      listed in the metaclass' custom :meth:`__dir__`.
+      listed in the metaclass' custom :meth:`~object.__dir__`.
 
 
 .. function:: getmembers_static(object[, predicate])
@@ -392,7 +392,11 @@ attributes (see :ref:`import-mod-attrs` for module attributes):
    Return ``True`` if the object can be used in :keyword:`await` expression.
 
    Can also be used to distinguish generator-based coroutines from regular
-   generators::
+   generators:
+
+   .. testcode::
+
+      import types
 
       def gen():
           yield
@@ -409,13 +413,15 @@ attributes (see :ref:`import-mod-attrs` for module attributes):
 .. function:: isasyncgenfunction(object)
 
    Return ``True`` if the object is an :term:`asynchronous generator` function,
-   for example::
+   for example:
 
-    >>> async def agen():
-    ...     yield 1
-    ...
-    >>> inspect.isasyncgenfunction(agen)
-    True
+   .. doctest::
+
+      >>> async def agen():
+      ...     yield 1
+      ...
+      >>> inspect.isasyncgenfunction(agen)
+      True
 
    .. versionadded:: 3.6
 
@@ -481,12 +487,13 @@ attributes (see :ref:`import-mod-attrs` for module attributes):
    has a :meth:`~object.__get__` method but not a :meth:`~object.__set__`
    method, but beyond that the set of attributes varies.  A
    :attr:`~definition.__name__` attribute is usually
-   sensible, and :attr:`__doc__` often is.
+   sensible, and :attr:`!__doc__` often is.
 
    Methods implemented via descriptors that also pass one of the other tests
    return ``False`` from the :func:`ismethoddescriptor` test, simply because the
    other tests promise more -- you can, e.g., count on having the
-   :attr:`__func__` attribute (etc) when an object passes :func:`ismethod`.
+   :ref:`__func__ <instance-methods>` attribute (etc) when an object passes
+   :func:`ismethod`.
 
 
 .. function:: isdatadescriptor(object)
@@ -497,7 +504,7 @@ attributes (see :ref:`import-mod-attrs` for module attributes):
    Examples are properties (defined in Python), getsets, and members.  The
    latter two are defined in C and there are more specific tests available for
    those types, which is robust across Python implementations.  Typically, data
-   descriptors will also have :attr:`~definition.__name__` and :attr:`__doc__` attributes
+   descriptors will also have :attr:`~definition.__name__` and :attr:`!__doc__` attributes
    (properties, getsets, and members have both of these attributes), but this is
    not guaranteed.
 
@@ -985,18 +992,20 @@ function.
       For variable-keyword arguments (``**kwargs``) the default is an
       empty dict.
 
-      ::
+      .. doctest::
 
-        >>> def foo(a, b='ham', *args): pass
-        >>> ba = inspect.signature(foo).bind('spam')
-        >>> ba.apply_defaults()
-        >>> ba.arguments
-        {'a': 'spam', 'b': 'ham', 'args': ()}
+         >>> def foo(a, b='ham', *args): pass
+         >>> ba = inspect.signature(foo).bind('spam')
+         >>> ba.apply_defaults()
+         >>> ba.arguments
+         {'a': 'spam', 'b': 'ham', 'args': ()}
 
       .. versionadded:: 3.5
 
    The :attr:`args` and :attr:`kwargs` properties can be used to invoke
-   functions::
+   functions:
+
+   .. testcode::
 
       def test(a, *, b):
           ...
@@ -1115,20 +1124,22 @@ Classes and functions
    ``**`` arguments, if any) to their values from *args* and *kwds*. In case of
    invoking *func* incorrectly, i.e. whenever ``func(*args, **kwds)`` would raise
    an exception because of incompatible signature, an exception of the same type
-   and the same or similar message is raised. For example::
+   and the same or similar message is raised. For example:
 
-    >>> from inspect import getcallargs
-    >>> def f(a, b=1, *pos, **named):
-    ...     pass
-    ...
-    >>> getcallargs(f, 1, 2, 3) == {'a': 1, 'named': {}, 'b': 2, 'pos': (3,)}
-    True
-    >>> getcallargs(f, a=2, x=4) == {'a': 2, 'named': {'x': 4}, 'b': 1, 'pos': ()}
-    True
-    >>> getcallargs(f)
-    Traceback (most recent call last):
-    ...
-    TypeError: f() missing 1 required positional argument: 'a'
+   .. doctest::
+
+      >>> from inspect import getcallargs
+      >>> def f(a, b=1, *pos, **named):
+      ...     pass
+      ...
+      >>> getcallargs(f, 1, 2, 3) == {'a': 1, 'named': {}, 'b': 2, 'pos': (3,)}
+      True
+      >>> getcallargs(f, a=2, x=4) == {'a': 2, 'named': {'x': 4}, 'b': 1, 'pos': ()}
+      True
+      >>> getcallargs(f)
+      Traceback (most recent call last):
+      ...
+      TypeError: f() missing 1 required positional argument: 'a'
 
    .. versionadded:: 3.2
 
@@ -1430,7 +1441,8 @@ Fetching attributes statically
 
 Both :func:`getattr` and :func:`hasattr` can trigger code execution when
 fetching or checking for the existence of attributes. Descriptors, like
-properties, will be invoked and :meth:`__getattr__` and :meth:`__getattribute__`
+properties, will be invoked and :meth:`~object.__getattr__` and
+:meth:`~object.__getattribute__`
 may be called.
 
 For cases where you want passive introspection, like documentation tools, this
@@ -1440,7 +1452,8 @@ but avoids executing code when it fetches attributes.
 .. function:: getattr_static(obj, attr, default=None)
 
    Retrieve attributes without triggering dynamic lookup via the
-   descriptor protocol, :meth:`__getattr__` or :meth:`__getattribute__`.
+   descriptor protocol, :meth:`~object.__getattr__`
+   or :meth:`~object.__getattribute__`.
 
    Note: this function may not be able to retrieve all attributes
    that getattr can fetch (like dynamically created attributes)
