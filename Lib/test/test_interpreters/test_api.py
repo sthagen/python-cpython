@@ -452,6 +452,63 @@ class TestInterpreterClose(TestBase):
         self.assertEqual(os.read(r_interp, 1), FINISHED)
 
 
+class TestInterpreterPrepareMain(TestBase):
+
+    def test_empty(self):
+        interp = interpreters.create()
+        with self.assertRaises(ValueError):
+            interp.prepare_main()
+
+    def test_dict(self):
+        values = {'spam': 42, 'eggs': 'ham'}
+        interp = interpreters.create()
+        interp.prepare_main(values)
+        out = _run_output(interp, dedent("""
+            print(spam, eggs)
+            """))
+        self.assertEqual(out.strip(), '42 ham')
+
+    def test_tuple(self):
+        values = {'spam': 42, 'eggs': 'ham'}
+        values = tuple(values.items())
+        interp = interpreters.create()
+        interp.prepare_main(values)
+        out = _run_output(interp, dedent("""
+            print(spam, eggs)
+            """))
+        self.assertEqual(out.strip(), '42 ham')
+
+    def test_kwargs(self):
+        values = {'spam': 42, 'eggs': 'ham'}
+        interp = interpreters.create()
+        interp.prepare_main(**values)
+        out = _run_output(interp, dedent("""
+            print(spam, eggs)
+            """))
+        self.assertEqual(out.strip(), '42 ham')
+
+    def test_dict_and_kwargs(self):
+        values = {'spam': 42, 'eggs': 'ham'}
+        interp = interpreters.create()
+        interp.prepare_main(values, foo='bar')
+        out = _run_output(interp, dedent("""
+            print(spam, eggs, foo)
+            """))
+        self.assertEqual(out.strip(), '42 ham bar')
+
+    def test_not_shareable(self):
+        interp = interpreters.create()
+        # XXX TypeError?
+        with self.assertRaises(ValueError):
+            interp.prepare_main(spam={'spam': 'eggs', 'foo': 'bar'})
+
+        # Make sure neither was actually bound.
+        with self.assertRaises(interpreters.ExecFailure):
+            interp.exec_sync('print(foo)')
+        with self.assertRaises(interpreters.ExecFailure):
+            interp.exec_sync('print(spam)')
+
+
 class TestInterpreterExecSync(TestBase):
 
     def test_success(self):
@@ -467,6 +524,54 @@ class TestInterpreterExecSync(TestBase):
         interp = interpreters.create()
         with self.assertRaises(interpreters.ExecFailure):
             interp.exec_sync('raise Exception')
+
+    def test_display_preserved_exception(self):
+        tempdir = self.temp_dir()
+        modfile = self.make_module('spam', tempdir, text="""
+            def ham():
+                raise RuntimeError('uh-oh!')
+
+            def eggs():
+                ham()
+            """)
+        scriptfile = self.make_script('script.py', tempdir, text="""
+            from test.support import interpreters
+
+            def script():
+                import spam
+                spam.eggs()
+
+            interp = interpreters.create()
+            interp.exec_sync(script)
+            """)
+
+        stdout, stderr = self.assert_python_failure(scriptfile)
+        self.maxDiff = None
+        interpmod_line, = (l for l in stderr.splitlines() if ' exec_sync' in l)
+        #      File "{interpreters.__file__}", line 179, in exec_sync
+        self.assertEqual(stderr, dedent(f"""\
+            Traceback (most recent call last):
+              File "{scriptfile}", line 9, in <module>
+                interp.exec_sync(script)
+                ~~~~~~~~~~~~~~~~^^^^^^^^
+              {interpmod_line.strip()}
+                raise ExecFailure(excinfo)
+            test.support.interpreters.ExecFailure: RuntimeError: uh-oh!
+
+            Uncaught in the interpreter:
+
+            Traceback (most recent call last):
+              File "{scriptfile}", line 6, in script
+                spam.eggs()
+                ~~~~~~~~~^^
+              File "{modfile}", line 6, in eggs
+                ham()
+                ~~~^^
+              File "{modfile}", line 3, in ham
+                raise RuntimeError('uh-oh!')
+            RuntimeError: uh-oh!
+            """))
+        self.assertEqual(stdout, '')
 
     def test_in_thread(self):
         interp = interpreters.create()

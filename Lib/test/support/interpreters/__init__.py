@@ -34,17 +34,36 @@ def __getattr__(name):
         raise AttributeError(name)
 
 
+_EXEC_FAILURE_STR = """
+{superstr}
+
+Uncaught in the interpreter:
+
+{formatted}
+""".strip()
+
 class ExecFailure(RuntimeError):
 
     def __init__(self, excinfo):
         msg = excinfo.formatted
         if not msg:
-            if excinfo.type and snapshot.msg:
-                msg = f'{snapshot.type.__name__}: {snapshot.msg}'
+            if excinfo.type and excinfo.msg:
+                msg = f'{excinfo.type.__name__}: {excinfo.msg}'
             else:
-                msg = snapshot.type.__name__ or snapshot.msg
+                msg = excinfo.type.__name__ or excinfo.msg
         super().__init__(msg)
-        self.snapshot = excinfo
+        self.excinfo = excinfo
+
+    def __str__(self):
+        try:
+            formatted = self.excinfo.errdisplay
+        except Exception:
+            return super().__str__()
+        else:
+            return _EXEC_FAILURE_STR.format(
+                superstr=super().__str__(),
+                formatted=formatted,
+            )
 
 
 def create():
@@ -130,7 +149,15 @@ class Interpreter:
         """
         return _interpreters.destroy(self._id)
 
-    def exec_sync(self, code, /, channels=None):
+    def prepare_main(self, ns=None, /, **kwargs):
+        """Bind the given values into the interpreter's __main__.
+
+        The values must be shareable.
+        """
+        ns = dict(ns, **kwargs) if ns is not None else kwargs
+        _interpreters.set___main___attrs(self._id, ns)
+
+    def exec_sync(self, code, /):
         """Run the given source code in the interpreter.
 
         This is essentially the same as calling the builtin "exec"
@@ -148,13 +175,13 @@ class Interpreter:
         that time, the previous interpreter is allowed to run
         in other threads.
         """
-        excinfo = _interpreters.exec(self._id, code, channels)
+        excinfo = _interpreters.exec(self._id, code)
         if excinfo is not None:
             raise ExecFailure(excinfo)
 
-    def run(self, code, /, channels=None):
+    def run(self, code, /):
         def task():
-            self.exec_sync(code, channels=channels)
+            self.exec_sync(code)
         t = threading.Thread(target=task)
         t.start()
         return t
