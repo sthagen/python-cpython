@@ -12,7 +12,6 @@ import ast
 import builtins as bltns
 import collections
 import contextlib
-import copy
 import dataclasses as dc
 import enum
 import functools
@@ -44,14 +43,20 @@ from typing import (
     Protocol,
     TypeVar,
     cast,
-    overload,
 )
 
 
 # Local imports.
 import libclinic
 import libclinic.cpp
-from libclinic import ClinicError
+from libclinic import (
+    ClinicError, Sentinels, VersionTuple,
+    fail, warn, unspecified, unknown)
+from libclinic.function import (
+    Module, Class, Function, Parameter,
+    ClassDict, ModuleDict, FunctionKind,
+    CALLABLE, STATIC_METHOD, CLASS_METHOD, METHOD_INIT, METHOD_NEW,
+    GETTER, SETTER)
 
 
 # TODO:
@@ -71,18 +76,6 @@ from libclinic import ClinicError
 LIMITED_CAPI_REGEX = re.compile(r'# *define +Py_LIMITED_API')
 
 
-class Sentinels(enum.Enum):
-    unspecified = "unspecified"
-    unknown = "unknown"
-
-    def __repr__(self) -> str:
-        return f"<{self.value.capitalize()}>"
-
-
-unspecified: Final = Sentinels.unspecified
-unknown: Final = Sentinels.unknown
-
-
 # This one needs to be a distinct class, unlike the other two
 class Null:
     def __repr__(self) -> str:
@@ -92,51 +85,6 @@ class Null:
 NULL = Null()
 
 TemplateDict = dict[str, str]
-
-
-@overload
-def warn_or_fail(
-    *args: object,
-    fail: Literal[True],
-    filename: str | None = None,
-    line_number: int | None = None,
-) -> NoReturn: ...
-
-@overload
-def warn_or_fail(
-    *args: object,
-    fail: Literal[False] = False,
-    filename: str | None = None,
-    line_number: int | None = None,
-) -> None: ...
-
-def warn_or_fail(
-    *args: object,
-    fail: bool = False,
-    filename: str | None = None,
-    line_number: int | None = None,
-) -> None:
-    joined = " ".join([str(a) for a in args])
-    error = ClinicError(joined, filename=filename, lineno=line_number)
-    if fail:
-        raise error
-    else:
-        print(error.report(warn_only=True))
-
-
-def warn(
-    *args: object,
-    filename: str | None = None,
-    line_number: int | None = None,
-) -> None:
-    return warn_or_fail(*args, filename=filename, line_number=line_number, fail=False)
-
-def fail(
-    *args: object,
-    filename: str | None = None,
-    line_number: int | None = None,
-) -> NoReturn:
-    warn_or_fail(*args, filename=filename, line_number=line_number, fail=True)
 
 
 class CRenderData:
@@ -930,6 +878,7 @@ class CLanguage(Language):
                 displayname = parameters[0].get_displayname(0)
                 parsearg = converters[0].parse_arg(argname, displayname, limited_capi=limited_capi)
                 if parsearg is None:
+                    converters[0].use_converter()
                     parsearg = """
                         if (!PyArg_Parse(%s, "{format_units}:{name}", {parse_arguments})) {{
                             goto exit;
@@ -1062,6 +1011,9 @@ class CLanguage(Language):
                 if has_optional:
                     parser_code.append("skip_optional:")
             else:
+                for parameter in parameters:
+                    parameter.converter.use_converter()
+
                 if limited_capi:
                     fastcall = False
                 if fastcall:
@@ -1230,6 +1182,9 @@ class CLanguage(Language):
                 if add_label:
                     parser_code.append("%s:" % add_label)
             else:
+                for parameter in parameters:
+                    parameter.converter.use_converter()
+
                 declarations = declare_parser(f, clinic=clinic,
                                               hasformat=True,
                                               limited_capi=limited_capi)
@@ -2135,9 +2090,7 @@ extensions: LangDict = { name: CLanguage for name in "c cc cpp cxx h hh hpp hxx"
 extensions['py'] = PythonLanguage
 
 
-ClassDict = dict[str, "Class"]
 DestinationDict = dict[str, Destination]
-ModuleDict = dict[str, "Module"]
 
 
 class Parser(Protocol):
@@ -2457,38 +2410,6 @@ class PythonParser:
             block.output = s.getvalue()
 
 
-@dc.dataclass(repr=False)
-class Module:
-    name: str
-    module: Module | Clinic
-
-    def __post_init__(self) -> None:
-        self.parent = self.module
-        self.modules: ModuleDict = {}
-        self.classes: ClassDict = {}
-        self.functions: list[Function] = []
-
-    def __repr__(self) -> str:
-        return "<clinic.Module " + repr(self.name) + " at " + str(id(self)) + ">"
-
-
-@dc.dataclass(repr=False)
-class Class:
-    name: str
-    module: Module | Clinic
-    cls: Class | None
-    typedef: str
-    type_object: str
-
-    def __post_init__(self) -> None:
-        self.parent = self.cls or self.module
-        self.classes: ClassDict = {}
-        self.functions: list[Function] = []
-
-    def __repr__(self) -> str:
-        return "<clinic.Class " + repr(self.name) + " at " + str(id(self)) + ">"
-
-
 unsupported_special_methods: set[str] = set("""
 
 __abs__
@@ -2561,199 +2482,7 @@ __xor__
 """.strip().split())
 
 
-class FunctionKind(enum.Enum):
-    INVALID         = enum.auto()
-    CALLABLE        = enum.auto()
-    STATIC_METHOD   = enum.auto()
-    CLASS_METHOD    = enum.auto()
-    METHOD_INIT     = enum.auto()
-    METHOD_NEW      = enum.auto()
-    GETTER          = enum.auto()
-    SETTER          = enum.auto()
-
-    @functools.cached_property
-    def new_or_init(self) -> bool:
-        return self in {FunctionKind.METHOD_INIT, FunctionKind.METHOD_NEW}
-
-    def __repr__(self) -> str:
-        return f"<clinic.FunctionKind.{self.name}>"
-
-
-INVALID: Final = FunctionKind.INVALID
-CALLABLE: Final = FunctionKind.CALLABLE
-STATIC_METHOD: Final = FunctionKind.STATIC_METHOD
-CLASS_METHOD: Final = FunctionKind.CLASS_METHOD
-METHOD_INIT: Final = FunctionKind.METHOD_INIT
-METHOD_NEW: Final = FunctionKind.METHOD_NEW
-GETTER: Final = FunctionKind.GETTER
-SETTER: Final = FunctionKind.SETTER
-
-ParamDict = dict[str, "Parameter"]
 ReturnConverterType = Callable[..., "CReturnConverter"]
-
-
-@dc.dataclass(repr=False)
-class Function:
-    """
-    Mutable duck type for inspect.Function.
-
-    docstring - a str containing
-        * embedded line breaks
-        * text outdented to the left margin
-        * no trailing whitespace.
-        It will always be true that
-            (not docstring) or ((not docstring[0].isspace()) and (docstring.rstrip() == docstring))
-    """
-    parameters: ParamDict = dc.field(default_factory=dict)
-    _: dc.KW_ONLY
-    name: str
-    module: Module | Clinic
-    cls: Class | None
-    c_basename: str
-    full_name: str
-    return_converter: CReturnConverter
-    kind: FunctionKind
-    coexist: bool
-    return_annotation: object = inspect.Signature.empty
-    docstring: str = ''
-    # docstring_only means "don't generate a machine-readable
-    # signature, just a normal docstring".  it's True for
-    # functions with optional groups because we can't represent
-    # those accurately with inspect.Signature in 3.4.
-    docstring_only: bool = False
-    critical_section: bool = False
-    target_critical_section: list[str] = dc.field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.parent = self.cls or self.module
-        self.self_converter: self_converter | None = None
-        self.__render_parameters__: list[Parameter] | None = None
-
-    @functools.cached_property
-    def displayname(self) -> str:
-        """Pretty-printable name."""
-        if self.kind.new_or_init:
-            assert isinstance(self.cls, Class)
-            return self.cls.name
-        else:
-            return self.name
-
-    @functools.cached_property
-    def fulldisplayname(self) -> str:
-        parent: Class | Module | Clinic | None
-        if self.kind.new_or_init:
-            parent = getattr(self.cls, "parent", None)
-        else:
-            parent = self.parent
-        name = self.displayname
-        while isinstance(parent, (Module, Class)):
-            name = f"{parent.name}.{name}"
-            parent = parent.parent
-        return name
-
-    @property
-    def render_parameters(self) -> list[Parameter]:
-        if not self.__render_parameters__:
-            l: list[Parameter] = []
-            self.__render_parameters__ = l
-            for p in self.parameters.values():
-                p = p.copy()
-                p.converter.pre_render()
-                l.append(p)
-        return self.__render_parameters__
-
-    @property
-    def methoddef_flags(self) -> str | None:
-        if self.kind.new_or_init:
-            return None
-        flags = []
-        match self.kind:
-            case FunctionKind.CLASS_METHOD:
-                flags.append('METH_CLASS')
-            case FunctionKind.STATIC_METHOD:
-                flags.append('METH_STATIC')
-            case _ as kind:
-                acceptable_kinds = {FunctionKind.CALLABLE, FunctionKind.GETTER, FunctionKind.SETTER}
-                assert kind in acceptable_kinds, f"unknown kind: {kind!r}"
-        if self.coexist:
-            flags.append('METH_COEXIST')
-        return '|'.join(flags)
-
-    def __repr__(self) -> str:
-        return f'<clinic.Function {self.name!r}>'
-
-    def copy(self, **overrides: Any) -> Function:
-        f = dc.replace(self, **overrides)
-        f.parameters = {
-            name: value.copy(function=f)
-            for name, value in f.parameters.items()
-        }
-        return f
-
-
-VersionTuple = tuple[int, int]
-
-
-@dc.dataclass(repr=False, slots=True)
-class Parameter:
-    """
-    Mutable duck type of inspect.Parameter.
-    """
-    name: str
-    kind: inspect._ParameterKind
-    _: dc.KW_ONLY
-    default: object = inspect.Parameter.empty
-    function: Function
-    converter: CConverter
-    annotation: object = inspect.Parameter.empty
-    docstring: str = ''
-    group: int = 0
-    # (`None` signifies that there is no deprecation)
-    deprecated_positional: VersionTuple | None = None
-    deprecated_keyword: VersionTuple | None = None
-    right_bracket_count: int = dc.field(init=False, default=0)
-
-    def __repr__(self) -> str:
-        return f'<clinic.Parameter {self.name!r}>'
-
-    def is_keyword_only(self) -> bool:
-        return self.kind == inspect.Parameter.KEYWORD_ONLY
-
-    def is_positional_only(self) -> bool:
-        return self.kind == inspect.Parameter.POSITIONAL_ONLY
-
-    def is_vararg(self) -> bool:
-        return self.kind == inspect.Parameter.VAR_POSITIONAL
-
-    def is_optional(self) -> bool:
-        return not self.is_vararg() and (self.default is not unspecified)
-
-    def copy(
-        self,
-        /,
-        *,
-        converter: CConverter | None = None,
-        function: Function | None = None,
-        **overrides: Any
-    ) -> Parameter:
-        function = function or self.function
-        if not converter:
-            converter = copy.copy(self.converter)
-            converter.function = function
-        return dc.replace(self, **overrides, function=function, converter=converter)
-
-    def get_displayname(self, i: int) -> str:
-        if i == 0:
-            return 'argument'
-        if not self.is_positional_only():
-            return f'argument {self.name!r}'
-        else:
-            return f'argument {i}'
-
-    def render_docstring(self) -> str:
-        lines = [f"  {self.name}"]
-        lines.extend(f"    {line}" for line in self.docstring.split("\n"))
-        return "\n".join(lines).rstrip()
 
 
 CConverterClassT = TypeVar("CConverterClassT", bound=type["CConverter"])
@@ -3201,8 +2930,13 @@ class CConverter(metaclass=CConverterAutoRegister):
             fmt = fmt.replace('{bad_argument2}', bad_argument2)
         return fmt.format(argname=argname, paramname=self.parser_name, **kwargs)
 
+    def use_converter(self) -> None:
+        """Method called when self.converter is used to parse an argument."""
+        pass
+
     def parse_arg(self, argname: str, displayname: str, *, limited_capi: bool) -> str | None:
         if self.format_unit == 'O&':
+            self.use_converter()
             return self.format_code("""
                 if (!{converter}({argname}, &{paramname})) {{{{
                     goto exit;
@@ -3481,6 +3215,9 @@ class unsigned_short_converter(CConverter):
             self.format_unit = 'H'
         else:
             self.converter = '_PyLong_UnsignedShort_Converter'
+
+    def use_converter(self) -> None:
+        if self.converter == '_PyLong_UnsignedShort_Converter':
             self.add_include('pycore_long.h',
                              '_PyLong_UnsignedShort_Converter()')
 
@@ -3565,6 +3302,9 @@ class unsigned_int_converter(CConverter):
             self.format_unit = 'I'
         else:
             self.converter = '_PyLong_UnsignedInt_Converter'
+
+    def use_converter(self) -> None:
+        if self.converter == '_PyLong_UnsignedInt_Converter':
             self.add_include('pycore_long.h',
                              '_PyLong_UnsignedInt_Converter()')
 
@@ -3623,6 +3363,9 @@ class unsigned_long_converter(CConverter):
             self.format_unit = 'k'
         else:
             self.converter = '_PyLong_UnsignedLong_Converter'
+
+    def use_converter(self) -> None:
+        if self.converter == '_PyLong_UnsignedLong_Converter':
             self.add_include('pycore_long.h',
                              '_PyLong_UnsignedLong_Converter()')
 
@@ -3676,6 +3419,9 @@ class unsigned_long_long_converter(CConverter):
             self.format_unit = 'K'
         else:
             self.converter = '_PyLong_UnsignedLongLong_Converter'
+
+    def use_converter(self) -> None:
+        if self.converter == '_PyLong_UnsignedLongLong_Converter':
             self.add_include('pycore_long.h',
                              '_PyLong_UnsignedLongLong_Converter()')
 
@@ -3710,13 +3456,15 @@ class Py_ssize_t_converter(CConverter):
         if accept == {int}:
             self.format_unit = 'n'
             self.default_type = int
-            self.add_include('pycore_abstract.h', '_PyNumber_Index()')
         elif accept == {int, NoneType}:
             self.converter = '_Py_convert_optional_to_ssize_t'
-            self.add_include('pycore_abstract.h',
-                             '_Py_convert_optional_to_ssize_t()')
         else:
             fail(f"Py_ssize_t_converter: illegal 'accept' argument {accept!r}")
+
+    def use_converter(self) -> None:
+        if self.converter == '_Py_convert_optional_to_ssize_t':
+            self.add_include('pycore_abstract.h',
+                             '_Py_convert_optional_to_ssize_t()')
 
     def parse_arg(self, argname: str, displayname: str, *, limited_capi: bool) -> str | None:
         if self.format_unit == 'n':
@@ -3724,6 +3472,7 @@ class Py_ssize_t_converter(CConverter):
                 PyNumber_Index = 'PyNumber_Index'
             else:
                 PyNumber_Index = '_PyNumber_Index'
+                self.add_include('pycore_abstract.h', '_PyNumber_Index()')
             return self.format_code("""
                 {{{{
                     Py_ssize_t ival = -1;
@@ -3817,7 +3566,7 @@ class size_t_converter(CConverter):
     converter = '_PyLong_Size_t_Converter'
     c_ignored_default = "0"
 
-    def converter_init(self, *, accept: TypeSet = {int, NoneType}) -> None:
+    def use_converter(self) -> None:
         self.add_include('pycore_long.h',
                          '_PyLong_Size_t_Converter()')
 
@@ -3846,14 +3595,14 @@ class fildes_converter(CConverter):
     type = 'int'
     converter = '_PyLong_FileDescriptor_Converter'
 
-    def converter_init(self, *, accept: TypeSet = {int, NoneType}) -> None:
+    def use_converter(self) -> None:
         self.add_include('pycore_fileutils.h',
                          '_PyLong_FileDescriptor_Converter()')
 
-    def _parse_arg(self, argname: str, displayname: str) -> str | None:
+    def parse_arg(self, argname: str, displayname: str, *, limited_capi: bool) -> str | None:
         return self.format_code("""
             {paramname} = PyObject_AsFileDescriptor({argname});
-            if ({paramname} == -1) {{{{
+            if ({paramname} < 0) {{{{
                 goto exit;
             }}}}
             """,
