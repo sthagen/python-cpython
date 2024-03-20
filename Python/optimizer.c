@@ -913,6 +913,8 @@ make_executor_from_uops(_PyUOpInstruction *buffer, const _PyBloomFilter *depende
     if (executor == NULL) {
         return NULL;
     }
+    OPT_HIST(length, optimized_trace_length_hist);
+
     /* Initialize exits */
     for (int i = 0; i < exit_count; i++) {
         executor->exits[i].executor = &COLD_EXITS[i];
@@ -981,7 +983,7 @@ make_executor_from_uops(_PyUOpInstruction *buffer, const _PyBloomFilter *depende
 static int
 init_cold_exit_executor(_PyExecutorObject *executor, int oparg)
 {
-    _Py_SetImmortal(executor);
+    _Py_SetImmortalUntracked((PyObject *)executor);
     Py_SET_TYPE(executor, &_PyUOpExecutor_Type);
     executor->trace = (_PyUOpInstruction *)executor->exits;
     executor->code_size = 1;
@@ -1051,7 +1053,6 @@ uop_optimize(
     if (executor == NULL) {
         return -1;
     }
-    OPT_HIST(Py_SIZE(executor), optimized_trace_length_hist);
     *exec_ptr = executor;
     return 1;
 }
