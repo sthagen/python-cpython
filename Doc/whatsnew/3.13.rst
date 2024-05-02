@@ -288,6 +288,10 @@ Other Language Changes
   class scopes are not inlined into their parent scope. (Contributed by
   Jelle Zijlstra in :gh:`109118` and :gh:`118160`.)
 
+* ``from __future__ import ...`` statements are now just normal
+  relative imports if dots are present before the module name.
+  (Contributed by Jeremiah Gabriel Pascual in :gh:`118216`.)
+
 
 New Modules
 ===========
@@ -946,7 +950,8 @@ The ``--enable-experimental-jit`` flag has the following optional values:
   The interpreter can be disabled by running with
   ``PYTHON_JIT=0``.
 
-(On Windows, use ``PCbuild/build.bat --enable-jit`` to enable the JIT.)
+(On Windows, use ``PCbuild/build.bat --experimental-jit`` to enable the JIT
+or ``--experimental-jit-interpreter`` to enable the Tier 2 interpreter.)
 
 See :pep:`744` for more details.
 
