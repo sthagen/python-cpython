@@ -232,6 +232,8 @@ framelocalsproxy_merge(PyObject* self, PyObject* other)
         Py_DECREF(value);
     }
 
+    Py_DECREF(iter);
+
     return 0;
 }
 
@@ -242,11 +244,18 @@ framelocalsproxy_keys(PyObject *self, PyObject *__unused)
     PyFrameObject *frame = ((PyFrameLocalsProxyObject*)self)->frame;
     PyCodeObject *co = _PyFrame_GetCode(frame->f_frame);
 
+    if (names == NULL) {
+        return NULL;
+    }
+
     for (int i = 0; i < co->co_nlocalsplus; i++) {
         PyObject *val = framelocalsproxy_getval(frame->f_frame, co, i);
         if (val) {
             PyObject *name = PyTuple_GET_ITEM(co->co_localsplusnames, i);
-            PyList_Append(names, name);
+            if (PyList_Append(names, name) < 0) {
+                Py_DECREF(names);
+                return NULL;
+            }
         }
     }
 
@@ -258,7 +267,10 @@ framelocalsproxy_keys(PyObject *self, PyObject *__unused)
     if (frame->f_extra_locals) {
         assert(PyDict_Check(frame->f_extra_locals));
         while (PyDict_Next(frame->f_extra_locals, &i, &key, &value)) {
-            PyList_Append(names, key);
+            if (PyList_Append(names, key) < 0) {
+                Py_DECREF(names);
+                return NULL;
+            }
         }
     }
 
@@ -306,7 +318,15 @@ framelocalsproxy_visit(PyObject *self, visitproc visit, void *arg)
 static PyObject *
 framelocalsproxy_iter(PyObject *self)
 {
-    return PyObject_GetIter(framelocalsproxy_keys(self, NULL));
+    PyObject* keys = framelocalsproxy_keys(self, NULL);
+    if (keys == NULL) {
+        return NULL;
+    }
+
+    PyObject* iter = PyObject_GetIter(keys);
+    Py_XDECREF(keys);
+
+    return iter;
 }
 
 static PyObject *
@@ -468,7 +488,7 @@ framelocalsproxy_length(PyObject *self)
     return size;
 }
 
-static PyObject*
+static int
 framelocalsproxy_contains(PyObject *self, PyObject *key)
 {
     PyFrameObject *frame = ((PyFrameLocalsProxyObject*)self)->frame;
@@ -476,21 +496,25 @@ framelocalsproxy_contains(PyObject *self, PyObject *key)
     if (PyUnicode_CheckExact(key)) {
         int i = framelocalsproxy_getkeyindex(frame, key, true);
         if (i >= 0) {
-            Py_RETURN_TRUE;
+            return 1;
         }
     }
 
     PyObject *extra = ((PyFrameObject*)frame)->f_extra_locals;
     if (extra != NULL) {
-        int result = PyDict_Contains(extra, key);
-        if (result < 0) {
-            return NULL;
-        } else if (result > 0) {
-            Py_RETURN_TRUE;
-        }
+        return PyDict_Contains(extra, key);
     }
 
-    Py_RETURN_FALSE;
+    return 0;
+}
+
+static PyObject* framelocalsproxy___contains__(PyObject *self, PyObject *key)
+{
+    int result = framelocalsproxy_contains(self, key);
+    if (result < 0) {
+        return NULL;
+    }
+    return PyBool_FromLong(result);
 }
 
 static PyObject*
@@ -567,6 +591,11 @@ static PyObject*
 framelocalsproxy_reversed(PyObject *self, PyObject *__unused)
 {
     PyObject *result = framelocalsproxy_keys(self, NULL);
+
+    if (result == NULL) {
+        return NULL;
+    }
+
     if (PyList_Reverse(result) < 0) {
         Py_DECREF(result);
         return NULL;
@@ -579,6 +608,10 @@ static PyNumberMethods framelocalsproxy_as_number = {
     .nb_inplace_or = framelocalsproxy_inplace_or,
 };
 
+static PySequenceMethods framelocalsproxy_as_sequence = {
+    .sq_contains = framelocalsproxy_contains,
+};
+
 static PyMappingMethods framelocalsproxy_as_mapping = {
     framelocalsproxy_length, // mp_length
     framelocalsproxy_getitem, // mp_subscript
@@ -586,7 +619,7 @@ static PyMappingMethods framelocalsproxy_as_mapping = {
 };
 
 static PyMethodDef framelocalsproxy_methods[] = {
-    {"__contains__",  framelocalsproxy_contains,          METH_O | METH_COEXIST,
+    {"__contains__",  framelocalsproxy___contains__,      METH_O | METH_COEXIST,
      NULL},
     {"__getitem__",   framelocalsproxy_getitem,           METH_O | METH_COEXIST,
      NULL},
@@ -614,6 +647,7 @@ PyTypeObject PyFrameLocalsProxy_Type = {
     .tp_dealloc = (destructor)framelocalsproxy_dealloc,
     .tp_repr = &framelocalsproxy_repr,
     .tp_as_number = &framelocalsproxy_as_number,
+    .tp_as_sequence = &framelocalsproxy_as_sequence,
     .tp_as_mapping = &framelocalsproxy_as_mapping,
     .tp_getattro = PyObject_GenericGetAttr,
     .tp_setattro = PyObject_GenericSetAttr,
