@@ -338,7 +338,7 @@ class ClinicWholeFileTest(TestCase):
             my_test_func
 
                 pos_arg: object
-                *args: object
+                *args: tuple
                 *
                 kw_arg: object
             [clinic start generated code]*/
@@ -353,7 +353,7 @@ class ClinicWholeFileTest(TestCase):
 
                 pos_arg: object
                 *
-                *args: object
+                *args: tuple
                 kw_arg: object
             [clinic start generated code]*/
         """
@@ -1816,7 +1816,7 @@ class ClinicParserTest(TestCase):
             foo.bar
                 a: int
                 * [from 3.14]
-                *args: object
+                *args: tuple
                 b: int
             Docstring.
         """
@@ -1844,7 +1844,7 @@ class ClinicParserTest(TestCase):
             module foo
             foo.bar
                 a: int
-                *args: object
+                *args: tuple
                 * [from 3.14]
                 b: int
             Docstring.
@@ -1980,7 +1980,7 @@ class ClinicParserTest(TestCase):
             foo.bar
                x: int
                y: int
-               *args: object
+               *args: tuple
                z: int
                /
         """
@@ -2031,7 +2031,7 @@ class ClinicParserTest(TestCase):
             module foo
             foo.bar
                 a: int
-                *args: object
+                *args: tuple
                 / [from 3.14]
                 b: int
             Docstring.
@@ -2070,8 +2070,8 @@ class ClinicParserTest(TestCase):
         block = """
             module foo
             foo.bar
-               *vararg1: object
-               *vararg2: object
+               *vararg1: tuple
+               *vararg2: tuple
         """
         self.expect_failure(block, err, lineno=3)
 
@@ -2156,11 +2156,11 @@ class ClinicParserTest(TestCase):
         block = """
             module foo
             foo.bar
-               *vararg1: object
-            \t*vararg2: object
+               *vararg1: tuple
+            \t*vararg2: tuple
         """
         err = ("Tab characters are illegal in the Clinic DSL: "
-               r"'\t*vararg2: object'")
+               r"'\t*vararg2: tuple'")
         self.expect_failure(block, err)
 
     def test_indent_stack_illegal_outdent(self):
@@ -2505,7 +2505,7 @@ class ClinicParserTest(TestCase):
         err = "Vararg can't take a default value!"
         block = """
             fn
-                *args: object = None
+                *args: tuple = None
         """
         self.expect_failure(block, err, lineno=1)
 
@@ -2703,7 +2703,7 @@ class ClinicExternalTest(TestCase):
             # Verify by checking the checksum.
             checksum = (
                 "/*[clinic end generated code: "
-                "output=0acbef4794cb933e input=9543a8d2da235301]*/\n"
+                "output=00512eb783a9b748 input=9543a8d2da235301]*/\n"
             )
             with open(fn, encoding='utf-8') as f:
                 generated = f.read()
