@@ -15,7 +15,7 @@ __all__ = [
     "get_annotate_function",
     "get_annotations",
     "annotations_to_string",
-    "value_to_string",
+    "type_repr",
 ]
 
 
@@ -225,8 +225,6 @@ class ForwardRef:
             # because dictionaries are not hashable.
             and self.__globals__ is other.__globals__
             and self.__forward_is_class__ == other.__forward_is_class__
-            and self.__code__ == other.__code__
-            and self.__ast_node__ == other.__ast_node__
             and self.__cell__ == other.__cell__
             and self.__owner__ == other.__owner__
         )
@@ -237,8 +235,6 @@ class ForwardRef:
             self.__forward_module__,
             id(self.__globals__),  # dictionaries are not hashable, so hash by identity
             self.__forward_is_class__,
-            self.__code__,
-            self.__ast_node__,
             self.__cell__,
             self.__owner__,
         ))
@@ -799,29 +795,27 @@ def get_annotations(
     return return_value
 
 
-def value_to_string(value):
+def type_repr(value):
     """Convert a Python value to a format suitable for use with the STRING format.
 
-    This is inteded as a helper for tools that support the STRING format but do
+    This is intended as a helper for tools that support the STRING format but do
     not have access to the code that originally produced the annotations. It uses
     repr() for most objects.
 
     """
-    if isinstance(value, type):
+    if isinstance(value, (type, types.FunctionType, types.BuiltinFunctionType)):
         if value.__module__ == "builtins":
             return value.__qualname__
         return f"{value.__module__}.{value.__qualname__}"
     if value is ...:
         return "..."
-    if isinstance(value, (types.FunctionType, types.BuiltinFunctionType)):
-        return value.__name__
     return repr(value)
 
 
 def annotations_to_string(annotations):
     """Convert an annotation dict containing values to approximately the STRING format."""
     return {
-        n: t if isinstance(t, str) else value_to_string(t)
+        n: t if isinstance(t, str) else type_repr(t)
         for n, t in annotations.items()
     }
 
