@@ -10,6 +10,7 @@ from _colorize import ANSIColors
 
 from .pstats_collector import PstatsCollector
 from .stack_collector import CollapsedStackCollector, FlamegraphCollector
+from .heatmap_collector import HeatmapCollector
 from .gecko_collector import GeckoCollector
 from .constants import (
     PROFILING_MODE_WALL,
@@ -23,7 +24,6 @@ except ImportError:
     LiveStatsCollector = None
 
 _FREE_THREADED_BUILD = sysconfig.get_config_var("Py_GIL_DISABLED") is not None
-
 
 
 class SampleProfiler:
@@ -112,8 +112,10 @@ class SampleProfiler:
         if self.realtime_stats and len(self.sample_intervals) > 0:
             print()  # Add newline after real-time stats
 
-        sample_rate = num_samples / running_time
+        sample_rate = num_samples / running_time if running_time > 0 else 0
         error_rate = (errors / num_samples) * 100 if num_samples > 0 else 0
+        expected_samples = int(duration_sec / sample_interval_sec)
+        missed_samples = (expected_samples - num_samples) / expected_samples * 100 if expected_samples > 0 else 0
 
         # Don't print stats for live mode (curses is handling display)
         is_live_mode = LiveStatsCollector is not None and isinstance(collector, LiveStatsCollector)
@@ -124,9 +126,8 @@ class SampleProfiler:
 
         # Pass stats to flamegraph collector if it's the right type
         if hasattr(collector, 'set_stats'):
-            collector.set_stats(self.sample_interval_usec, running_time, sample_rate, error_rate, mode=self.mode)
+            collector.set_stats(self.sample_interval_usec, running_time, sample_rate, error_rate, missed_samples, mode=self.mode)
 
-        expected_samples = int(duration_sec / sample_interval_sec)
         if num_samples < expected_samples and not is_live_mode and not interrupted:
             print(
                 f"Warning: missed {expected_samples - num_samples} samples "
