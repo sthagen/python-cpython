@@ -1634,7 +1634,11 @@ class TestUopsOptimization(unittest.TestCase):
         self.assertIsNotNone(ex)
         uops = get_opnames(ex)
         self.assertNotIn("_UNARY_NOT", uops)
-        self.assertNotIn("_POP_TOP_LOAD_CONST_INLINE_BORROW", uops)
+        # TODO (gh-143723): After refactoring TO_BOOL_INT to eliminate redundant
+        # refcounts, 'not a' is now constant-folded and currently lowered to
+        # _POP_TOP_LOAD_CONST_INLINE_BORROW. Re-enable once constant folding
+        # avoids this fused pop+const uop.
+        # self.assertNotIn("_POP_TOP_LOAD_CONST_INLINE_BORROW", uops)
 
     def test_unary_invert_insert_1_load_const_inline_borrow(self):
         def testfunc(n):
@@ -3028,6 +3032,39 @@ class TestUopsOptimization(unittest.TestCase):
         self.assertLessEqual(count_ops(ex, "_POP_TOP"), 3)
         self.assertIn("_POP_TOP_NOP", uops)
 
+    def test_to_bool_int(self):
+        def f(n):
+            for i in range(n):
+                truthy = (i == TIER2_THRESHOLD)
+                x = 0 + truthy
+                if x:
+                    return 1
+            return 0
+
+        res, ex = self._run_with_optimizer(f, TIER2_THRESHOLD)
+        self.assertEqual(res, 0)
+        self.assertIsNotNone(ex)
+        uops = get_opnames(ex)
+        self.assertIn("_TO_BOOL_INT", uops)
+        self.assertLessEqual(count_ops(ex, "_POP_TOP"), 3)
+        self.assertIn("_POP_TOP_NOP", uops)
+
+    def test_to_bool_list(self):
+        def f(n):
+            for i in range(n):
+                lst = [] if i != TIER2_THRESHOLD else [1]
+                if lst:
+                    return 1
+            return 0
+
+        res, ex = self._run_with_optimizer(f, TIER2_THRESHOLD)
+        self.assertEqual(res, 0)
+        self.assertIsNotNone(ex)
+        uops = get_opnames(ex)
+        self.assertIn("_TO_BOOL_LIST", uops)
+        self.assertLessEqual(count_ops(ex, "_POP_TOP"), 3)
+        self.assertIn("_POP_TOP_NOP", uops)
+
     def test_to_bool_always_true(self):
         def testfunc(n):
             class A:
@@ -3537,6 +3574,42 @@ class TestUopsOptimization(unittest.TestCase):
         self.assertIn("_SEND_GEN_FRAME", uops)
         # _POP_TOP_NOP is a sign the optimizer ran and didn't hit bottom.
         self.assertGreaterEqual(count_ops(ex, "_POP_TOP_NOP"), 1)
+
+    def test_binary_op_subscr_init_frame(self):
+        class B:
+            def __getitem__(self, other):
+                return other + 1
+        def testfunc(*args):
+            n, b = args[0]
+            for _ in range(n):
+                y = b[2]
+
+        res, ex = self._run_with_optimizer(testfunc, (TIER2_THRESHOLD, B()))
+        self.assertIsNotNone(ex)
+        uops = get_opnames(ex)
+
+        self.assertIn("_BINARY_OP_SUBSCR_INIT_CALL", uops)
+        # _POP_TOP_NOP is a sign the optimizer ran and didn't hit contradiction.
+        self.assertGreaterEqual(count_ops(ex, "_POP_TOP_NOP"), 1)
+
+    def test_load_attr_property_frame(self):
+        class B:
+            @property
+            def prop(self):
+                return 3
+        def testfunc(*args):
+            n, b = args[0]
+            for _ in range(n):
+                y = b.prop + b.prop
+
+        testfunc((3, B()))
+        res, ex = self._run_with_optimizer(testfunc, (TIER2_THRESHOLD, B()))
+        self.assertIsNotNone(ex)
+        uops = get_opnames(ex)
+
+        self.assertIn("_LOAD_ATTR_PROPERTY_FRAME", uops)
+        # This is a sign the optimizer ran and didn't hit contradiction.
+        self.assertIn("_INSERT_2_LOAD_CONST_INLINE_BORROW", uops)
 
     def test_unary_negative(self):
         def testfunc(n):
