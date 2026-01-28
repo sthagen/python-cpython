@@ -444,12 +444,17 @@ base64
 * Added the *wrapcol* parameter in :func:`~base64.b64encode`.
   (Contributed by Serhiy Storchaka in :gh:`143214`.)
 
+* Added the *ignorechars* parameter in :func:`~base64.b64decode`.
+  (Contributed by Serhiy Storchaka in :gh:`144001`.)
 
 binascii
 --------
 
 * Added the *wrapcol* parameter in :func:`~binascii.b2a_base64`.
   (Contributed by Serhiy Storchaka in :gh:`143214`.)
+
+* Added the *ignorechars* parameter in :func:`~binascii.a2b_base64`.
+  (Contributed by Serhiy Storchaka in :gh:`144001`.)
 
 
 calendar
@@ -738,6 +743,20 @@ ssl
 
    (Contributed by Ron Frederick in :gh:`138252`.)
 
+subprocess
+----------
+
+* :meth:`subprocess.Popen.wait`: when ``timeout`` is not ``None`` and the
+  platform supports it, an efficient event-driven mechanism is used to wait for
+  process termination:
+
+  - Linux >= 5.3 uses :func:`os.pidfd_open` + :func:`select.poll`.
+  - macOS and other BSD variants use :func:`select.kqueue` + ``KQ_FILTER_PROC`` + ``KQ_NOTE_EXIT``.
+  - Windows keeps using ``WaitForSingleObject`` (unchanged).
+
+  If none of these mechanisms are available, the function falls back to the
+  traditional busy loop (non-blocking call and short sleeps).
+  (Contributed by Giampaolo Rodola in :gh:`83069`).
 
 symtable
 --------
