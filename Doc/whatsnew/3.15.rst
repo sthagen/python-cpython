@@ -649,15 +649,24 @@ binascii
 
   - :func:`~binascii.b2a_ascii85` and :func:`~binascii.a2b_ascii85`
   - :func:`~binascii.b2a_base85` and :func:`~binascii.a2b_base85`
-  - :func:`~binascii.b2a_z85` and :func:`~binascii.a2b_z85`
 
   (Contributed by James Seo and Serhiy Storchaka in :gh:`101178`.)
 
 * Added the *wrapcol* parameter in :func:`~binascii.b2a_base64`.
   (Contributed by Serhiy Storchaka in :gh:`143214`.)
 
+* Added the *alphabet* parameter in :func:`~binascii.b2a_base64` and
+  :func:`~binascii.a2b_base64`.
+  (Contributed by Serhiy Storchaka in :gh:`145980`.)
+
 * Added the *ignorechars* parameter in :func:`~binascii.a2b_base64`.
   (Contributed by Serhiy Storchaka in :gh:`144001`.)
+
+* Added functions for Base32 encoding:
+
+  - :func:`~binascii.b2a_base32` and :func:`~binascii.a2b_base32`
+
+  (Contributed by James Seo in :gh:`146192`.)
 
 
 calendar
@@ -1276,6 +1285,10 @@ base64 & binascii
   two orders of magnitude less memory.
   (Contributed by James Seo and Serhiy Storchaka in :gh:`101178`.)
 
+* Implementation for Base32 has been rewritten in C.
+  Encoding and decoding is now two orders of magnitude faster.
+  (Contributed by James Seo in :gh:`146192`)
+
 
 csv
 ---
@@ -1358,7 +1371,7 @@ The JIT avoids :term:`reference count`\ s where possible. This generally
 reduces the cost of most operations in Python.
 
 (Contributed by Ken Jin, Donghee Na, Zheao Li, Hai Zhu, Savannah Ostrowski,
-Reiden Ong, Noam Cohen, Tomas Roun, PuQing, and Cajetan Rodrigues in :gh:`134584`.)
+Reiden Ong, Noam Cohen, Tomas Roun, PuQing, Cajetan Rodrigues, and Sacul in :gh:`134584`.)
 
 .. rubric:: Better machine code generation
 
