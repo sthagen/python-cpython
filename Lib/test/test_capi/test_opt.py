@@ -3446,6 +3446,27 @@ class TestUopsOptimization(unittest.TestCase):
         self.assertIn("_BUILD_LIST", uops)
         self.assertNotIn("_LOAD_COMMON_CONSTANT", uops)
 
+    def test_load_common_constant_new_literals(self):
+        def testfunc(n):
+            x = None
+            s = ""
+            t = True
+            f = False
+            m = -1
+            for _ in range(n):
+                x = None
+                s = ""
+                t = True
+                f = False
+                m = -1
+            return x, s, t, f, m
+        res, ex = self._run_with_optimizer(testfunc, TIER2_THRESHOLD)
+        self.assertEqual(res, (None, "", True, False, -1))
+        self.assertIsNotNone(ex)
+        uops = get_opnames(ex)
+        self.assertNotIn("_LOAD_COMMON_CONSTANT", uops)
+        self.assertIn("_LOAD_CONST_INLINE_BORROW", uops)
+
     def test_load_small_int(self):
         def testfunc(n):
             x = 0
@@ -3918,6 +3939,38 @@ class TestUopsOptimization(unittest.TestCase):
         res, ex = self._run_with_optimizer(testfunc, (2.0, 3.0, Fraction(4), TIER2_THRESHOLD))
         expected = TIER2_THRESHOLD * (5.0 / Fraction(4))
         self.assertAlmostEqual(res, float(expected))
+
+    def test_float_truediv_partial_float_no_stack_underflow(self):
+        # gh-149049: a speculative _GUARD_*_FLOAT for a partially-float
+        # truediv/remainder must not drop the original _BINARY_OP.
+        def truediv(args):
+            n, = args
+            nan = float("nan")
+            def victim(a=0, b=nan, c=2):
+                return (a + b) / c
+            for _ in range(n):
+                victim()
+
+        def remainder(args):
+            n, = args
+            nan = float("nan")
+            def victim(a=0, b=nan, c=2):
+                return (a + b) % c
+            for _ in range(n):
+                victim()
+
+        for testfunc in (truediv, remainder):
+            with self.subTest(op=testfunc.__name__):
+                # Iterations must be high enough that the buggy trace
+                # is not only built but executed (where it underflows).
+                _, ex = self._run_with_optimizer(
+                    testfunc, (TIER2_THRESHOLD * 10,))
+                self.assertIsNotNone(ex)
+                uops = get_opnames(ex)
+                self.assertTrue(
+                    "_GUARD_TOS_FLOAT" in uops or "_GUARD_NOS_FLOAT" in uops,
+                    uops,
+                )
 
     def test_int_add_inplace_unique_lhs(self):
         # a * b produces a unique compact int; adding c reuses it in place

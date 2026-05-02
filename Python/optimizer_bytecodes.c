@@ -1,4 +1,6 @@
 #include "Python.h"
+#include "pycore_long.h"
+#include "pycore_opcode_utils.h"
 #include "pycore_optimizer.h"
 #include "pycore_uops.h"
 #include "pycore_uop_ids.h"
@@ -229,8 +231,8 @@ dummy_func(void) {
     }
 
     op(_CHECK_ATTR_CLASS, (type_version/2, owner -- owner)) {
-        PyObject *type = (PyObject *)_PyType_LookupByVersion(type_version);
-        if (type) {
+        PyObject *type = sym_get_probable_value(owner);
+        if (type != NULL && ((PyTypeObject *)type)->tp_version_tag == type_version) {
             if (type == sym_get_const(ctx, owner)) {
                 ADD_OP(_NOP, 0, 0);
             }
@@ -246,7 +248,7 @@ dummy_func(void) {
 
     op(_GUARD_TYPE_VERSION, (type_version/2, owner -- owner)) {
         assert(type_version);
-        assert(this_instr[-1].opcode == _RECORD_TOS_TYPE);
+        assert(this_instr[-1].opcode == _RECORD_TOS_TYPE || this_instr[-1].opcode == _RECORD_TOS);
         if (sym_matches_type_version(owner, type_version)) {
             ADD_OP(_NOP, 0, 0);
         }
@@ -293,6 +295,7 @@ dummy_func(void) {
                            || oparg == NB_INPLACE_TRUE_DIVIDE);
         bool is_remainder = (oparg == NB_REMAINDER
                              || oparg == NB_INPLACE_REMAINDER);
+        int emit_op = _BINARY_OP;
         // Promote probable-float operands to known floats via speculative
         // guards. _RECORD_TOS_TYPE / _RECORD_NOS_TYPE in the BINARY_OP macro
         // record the observed operand type during tracing, which
@@ -318,17 +321,17 @@ dummy_func(void) {
         }
         if (is_truediv && lhs_float && rhs_float) {
             if (PyJitRef_IsUnique(lhs)) {
-                ADD_OP(_BINARY_OP_TRUEDIV_FLOAT_INPLACE, 0, 0);
+                emit_op = _BINARY_OP_TRUEDIV_FLOAT_INPLACE;
                 l = sym_new_null(ctx);
                 r = rhs;
             }
             else if (PyJitRef_IsUnique(rhs)) {
-                ADD_OP(_BINARY_OP_TRUEDIV_FLOAT_INPLACE_RIGHT, 0, 0);
+                emit_op = _BINARY_OP_TRUEDIV_FLOAT_INPLACE_RIGHT;
                 l = lhs;
                 r = sym_new_null(ctx);
             }
             else {
-                ADD_OP(_BINARY_OP_TRUEDIV_FLOAT, 0, 0);
+                emit_op = _BINARY_OP_TRUEDIV_FLOAT;
                 l = lhs;
                 r = rhs;
             }
@@ -382,6 +385,7 @@ dummy_func(void) {
         else {
             res = PyJitRef_MakeUnique(sym_new_type(ctx, &PyFloat_Type));
         }
+        ADD_OP(emit_op, oparg, 0);
     }
 
     op(_BINARY_OP_ADD_INT, (left, right -- res, l, r)) {
@@ -873,8 +877,14 @@ dummy_func(void) {
     op(_LOAD_COMMON_CONSTANT, (-- value)) {
         assert(oparg < NUM_COMMON_CONSTANTS);
         PyObject *val = _PyInterpreterState_GET()->common_consts[oparg];
-        ADD_OP(_LOAD_CONST_INLINE_BORROW, 0, (uintptr_t)val);
-        value = PyJitRef_Borrow(sym_new_const(ctx, val));
+        if (_Py_IsImmortal(val)) {
+            ADD_OP(_LOAD_CONST_INLINE_BORROW, 0, (uintptr_t)val);
+            value = PyJitRef_Borrow(sym_new_const(ctx, val));
+        }
+        else {
+            ADD_OP(_LOAD_CONST_INLINE, 0, (uintptr_t)val);
+            value = sym_new_const(ctx, val);
+        }
     }
 
     op(_LOAD_SMALL_INT, (-- value)) {
@@ -932,6 +942,13 @@ dummy_func(void) {
         bottom = top;
         top = temp;
         assert(oparg >= 2);
+    }
+
+    op(_RROT_3, (bottom, middle, top -- bottom, middle, top)) {
+        JitOptRef temp = top;
+        top = middle;
+        middle = bottom;
+        bottom = temp;
     }
 
     op(_LOAD_ATTR_INSTANCE_VALUE, (offset/1, owner -- attr, o)) {
