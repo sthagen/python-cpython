@@ -5475,6 +5475,20 @@ Widget classes
       inserted or deleted.
       Otherwise set the flag to the boolean *arg*.
 
+   .. method:: edit_canundo()
+
+      Return ``True`` if there is an edit action on the undo stack that can be
+      undone, and ``False`` otherwise.
+
+      .. versionadded:: next
+
+   .. method:: edit_canredo()
+
+      Return ``True`` if there is an edit action on the redo stack that can be
+      reapplied, and ``False`` otherwise.
+
+      .. versionadded:: next
+
    .. method:: edit_undo()
 
       Undo the most recent edit action, that is, all the inserts and deletes
@@ -5593,6 +5607,29 @@ Widget classes
       the widget itself.
 
       .. versionadded:: 3.3
+
+   .. method:: sync(command=None)
+
+      Control the synchronization of the displayed view with the underlying
+      text, which may lag behind when line heights have not yet been computed
+      (for example, for lines that have never been displayed).
+      If *command* is omitted, bring the line metrics up to date immediately by
+      forcing computation of any outdated line heights, and return once they
+      are current.
+      Otherwise schedule *command* to be called, with no arguments, exactly
+      once as soon as all line heights are up to date; if there are no pending
+      calculations, it is called immediately.
+
+      .. versionadded:: next
+
+   .. method:: pendingsync()
+
+      Return ``True`` if the line height calculations are not up to date, and
+      ``False`` otherwise.
+      The ``<<WidgetViewSync>>`` virtual event fires whenever this state
+      changes, with the *detail* field set to the new value.
+
+      .. versionadded:: next
 
    .. method:: yview_pickplace(*what)
 
